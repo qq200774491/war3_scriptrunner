@@ -583,11 +583,24 @@ fn room_thread(
         }
     };
 
-    // Initialize Lua VM
-    let lua = match Lua::new() {
-        l => l,
-    };
+    // Initialize Lua VM (exclude IO; DEBUG is already excluded by ALL_SAFE)
+    let lua = Lua::new_with(
+        LuaStdLib::ALL_SAFE ^ LuaStdLib::IO,
+        LuaOptions::default(),
+    )
+    .unwrap();
     lua.set_memory_limit(10 * 1024 * 1024).ok();
+
+    // Sandbox: restrict stdlib to match MLS online environment
+    {
+        let globals = lua.globals();
+        let os_table: mlua::Table = globals.get("os").unwrap();
+        for name in ["execute", "exit", "getenv", "remove", "rename", "setlocale", "tmpname"] {
+            os_table.set(name, LuaNil).unwrap();
+        }
+        globals.set("io", LuaNil).unwrap();
+        globals.set("debug", LuaNil).unwrap();
+    }
 
     // Install JSON library
     if let Err(e) = json_lua::install_json_lib(&lua) {

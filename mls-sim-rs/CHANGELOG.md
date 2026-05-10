@@ -1,11 +1,19 @@
 # Changelog
 
+## v0.5.2 (2026-05-10)
+
+### 修复
+- 限制 Lua 标准库以对标 MLS 线上环境
+  - `os` 模块仅保留 `difftime`、`clock`、`time`、`date`，移除 `execute`、`exit`、`getenv`、`remove`、`rename`、`setlocale`、`tmpname`
+  - 完全移除 `io` 模块（VM 层面不加载）
+  - 完全移除 `debug` 模块
+
 ## v0.5.1 (2026-05-10)
 
 ### 修复
 - 修复自定义 `require` 不识别 Lua 5.3 内置模块的问题
   - `require 'utf8'`、`require 'math'`、`require 'string'` 等调用会报 `module not found`
-  - 在文件搜索前新增全局表查找，已注册的内置模块（utf8、math、string、table、coroutine、os、io、debug）和项目自定义模块（json、Log、Timer 等）均可通过 `require` 正常加载
+  - 在文件搜索前新增全局表查找，已注册的内置模块（utf8、math、string、table、coroutine、os 等）和项目自定义模块（json、Log、Timer 等）均可通过 `require` 正常加载
 
 ## v0.5.0 (2026-04-28)
 
