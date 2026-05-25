@@ -27,6 +27,58 @@ pub enum Tab {
     Settings,
 }
 
+struct CommandHint {
+    name: &'static str,
+    usage: &'static str,
+}
+
+const COMMAND_HINTS: &[CommandHint] = &[
+    CommandHint {
+        name: "rooms",
+        usage: "rooms - 列出所有房间",
+    },
+    CommandHint {
+        name: "clear",
+        usage: "clear - 清空控制台日志",
+    },
+    CommandHint {
+        name: "create",
+        usage: "create <脚本目录> [模式] - 创建房间",
+    },
+    CommandHint {
+        name: "select",
+        usage: "select <房间> - 选择房间",
+    },
+    CommandHint {
+        name: "stop",
+        usage: "stop <房间> - 停止房间",
+    },
+    CommandHint {
+        name: "destroy",
+        usage: "destroy <房间> - 删除房间",
+    },
+    CommandHint {
+        name: "restart",
+        usage: "restart <房间> - 重启房间",
+    },
+    CommandHint {
+        name: "join",
+        usage: "join <房间> <槽位> [名称] - 玩家上线",
+    },
+    CommandHint {
+        name: "leave",
+        usage: "leave <房间> <槽位> - 玩家离线",
+    },
+    CommandHint {
+        name: "exit",
+        usage: "exit <房间> <槽位> - 玩家退出",
+    },
+    CommandHint {
+        name: "event",
+        usage: "event <房间> <事件名> [数据] [玩家] - 发送事件",
+    },
+];
+
 pub struct GuiApp {
     pub manager: Arc<RwLock<RoomManager>>,
     pub config: Arc<RwLock<AppConfig>>,
@@ -220,6 +272,8 @@ impl GuiApp {
                         && (response.has_focus() || response.lost_focus());
                     if enter_pressed {
                         self.execute_command_input();
+                    } else {
+                        show_command_hint(ui.ctx(), &response, &self.command_input);
                     }
                 });
 
@@ -673,6 +727,66 @@ fn current_ts() -> f64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs_f64()
+}
+
+fn show_command_hint(ctx: &egui::Context, response: &egui::Response, input: &str) {
+    if !response.has_focus() {
+        return;
+    }
+
+    let hints = matching_command_hints(input);
+    if hints.is_empty() {
+        return;
+    }
+
+    let row_height = 20.0;
+    let popup_height = 10.0 + row_height * hints.len() as f32;
+    let pos = egui::pos2(
+        response.rect.left(),
+        (response.rect.top() - popup_height - 6.0).max(0.0),
+    );
+
+    egui::Area::new(egui::Id::new("command_hint_popup"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(pos)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_min_width(response.rect.width().min(640.0));
+                for hint in hints {
+                    ui.label(
+                        egui::RichText::new(hint.usage)
+                            .monospace()
+                            .size(13.0),
+                    );
+                }
+            });
+        });
+}
+
+fn matching_command_hints(input: &str) -> Vec<&'static CommandHint> {
+    let trimmed = input.trim_start();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let command = trimmed
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if command.is_empty() {
+        return Vec::new();
+    }
+
+    if let Some(hint) = COMMAND_HINTS.iter().find(|hint| hint.name == command) {
+        return vec![hint];
+    }
+
+    COMMAND_HINTS
+        .iter()
+        .filter(|hint| hint.name.starts_with(&command))
+        .take(5)
+        .collect()
 }
 
 fn split_command_args(command: &str) -> Result<Vec<String>, String> {
