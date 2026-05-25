@@ -268,12 +268,17 @@ impl GuiApp {
                         egui::TextEdit::singleline(&mut self.command_input)
                             .font(egui::TextStyle::Monospace)
                     );
-                    let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter))
-                        && (response.has_focus() || response.lost_focus());
-                    if enter_pressed {
-                        self.execute_command_input();
+
+                    if !ui.input(|i| i.focused) {
+                        response.surrender_focus();
                     } else {
-                        show_command_hint(ui.ctx(), &response, &self.command_input);
+                        let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter))
+                            && (response.has_focus() || response.lost_focus());
+                        if enter_pressed {
+                            self.execute_command_input();
+                        } else {
+                            show_command_hint(ui.ctx(), &response, &self.command_input);
+                        }
                     }
                 });
 
