@@ -2,7 +2,12 @@
 name = "mls-sim"
 version = "0.5.3"
 edition = "2021"
-authors = ["花吃了阿九", "xiaowei <1053122090@qq.com>"]
+authors = [
+    "花吃了阿九",
+    "xiaowei <1053122090@qq.com>",
+    "小为 <43251607+Syh1906@users.noreply.github.com>",
+    "Carlos <Carlos-x-i@Hotmail.com>",
+]
 repository = "https://github.com/qq200774491/war3_mls"
 
 [dependencies]
