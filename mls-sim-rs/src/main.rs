@@ -2,7 +2,7 @@ use clap::Parser;
 use eframe::egui;
 use mls_sim::config::{AppConfig, Cli};
 use mls_sim::room::RoomManager;
-use mls_sim::{bridge, config, gui, storage};
+use mls_sim::{bridge, config, gui, pipe, storage};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -78,6 +78,21 @@ fn main() {
         rt.spawn(async move {
             bridge::run_bridge_server(host, port, manager, config).await;
         });
+    }
+
+    {
+        let (pipe_enable, pipe_name) = {
+            let c = config.read().unwrap();
+            (c.pipe_enable, c.pipe_name.clone())
+        };
+        if pipe_enable {
+            let manager = manager.clone();
+            rt.spawn(async move {
+                pipe::run_pipe_server(pipe_name, manager).await;
+            });
+        } else {
+            tracing::info!("Pipe bridge disabled by config");
+        }
     }
 
     println!();

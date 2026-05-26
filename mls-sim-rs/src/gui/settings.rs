@@ -1,5 +1,6 @@
 use eframe::egui;
 
+use super::palette;
 use super::{section_heading, GuiApp};
 
 impl GuiApp {
@@ -88,9 +89,9 @@ impl GuiApp {
                             .as_secs_f64();
                         if now - ts < 3.0 {
                             let color = if is_err {
-                                egui::Color32::from_rgb(255, 95, 95)
+                                palette::DANGER
                             } else {
-                                egui::Color32::from_rgb(75, 215, 105)
+                                palette::SUCCESS
                             };
                             ui.add_space(8.0);
                             ui.colored_label(color, msg);

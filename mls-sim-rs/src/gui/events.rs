@@ -1,5 +1,6 @@
 use eframe::egui;
 
+use super::palette;
 use super::{format_time, section_heading, GuiApp};
 
 impl GuiApp {
@@ -47,7 +48,7 @@ impl GuiApp {
                             ui.label(
                                 egui::RichText::new(format!("{} 条", self.out_events.len()))
                                     .small()
-                                    .color(egui::Color32::from_rgb(140, 148, 165)),
+                                    .color(palette::TEXT_DIM),
                             );
                         },
                     );
@@ -88,7 +89,7 @@ impl GuiApp {
                                         egui::RichText::new(format_time(ev.timestamp))
                                             .monospace()
                                             .size(13.0)
-                                            .color(egui::Color32::from_rgb(140, 148, 165)),
+                                            .color(palette::TEXT_DIM),
                                     );
                                     ui.label(&ev.room_id);
                                     ui.label(if ev.player_index < 0 {
@@ -98,7 +99,7 @@ impl GuiApp {
                                     });
                                     ui.label(
                                         egui::RichText::new(&ev.ename)
-                                            .color(egui::Color32::from_rgb(140, 195, 255)),
+                                            .color(palette::ACCENT),
                                     );
                                     ui.label(
                                         egui::RichText::new(truncate(&ev.evalue, 80))

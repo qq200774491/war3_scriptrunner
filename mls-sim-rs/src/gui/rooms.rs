@@ -7,6 +7,7 @@ use crate::storage;
 
 use eframe::egui;
 
+use super::palette;
 use super::{format_duration, section_heading, GuiApp};
 
 struct RoomInfo {
@@ -28,10 +29,10 @@ struct PlayerInfo {
 
 fn status_label(status: &RoomStatus) -> (&'static str, egui::Color32) {
     match status {
-        RoomStatus::Running => ("运行中", egui::Color32::from_rgb(75, 215, 105)),
-        RoomStatus::Stopped => ("已停止", egui::Color32::from_rgb(140, 148, 165)),
-        RoomStatus::Error => ("错误", egui::Color32::from_rgb(255, 95, 95)),
-        RoomStatus::Created => ("已创建", egui::Color32::from_rgb(105, 165, 255)),
+        RoomStatus::Running => ("运行中", palette::SUCCESS),
+        RoomStatus::Stopped => ("已停止", palette::TEXT_DIM),
+        RoomStatus::Error => ("错误", palette::DANGER),
+        RoomStatus::Created => ("已创建", palette::INFO),
     }
 }
 
@@ -81,7 +82,29 @@ impl GuiApp {
             list
         };
 
-        let mut delete_room: Option<String> = None;
+        // ── Keyboard shortcuts (idle only — no text input focused) ──
+        let idle = ctx.memory(|m| m.focused().is_none());
+        if idle {
+            // ↑ / ↓ — navigate sorted room list (wrap-around)
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {
+                self.navigate_rooms(1);
+            }
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)) {
+                self.navigate_rooms(-1);
+            }
+            // N — toggle 新建房间 form
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::N)) {
+                self.show_create_room = !self.show_create_room;
+            }
+            // Delete — request delete of selected room
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)) {
+                if let Some(id) = self.selected_room_id.clone() {
+                    self.request_delete_room(id);
+                }
+            }
+        }
+
+        let need_scroll = self.consume_scroll_to_selected_room();
 
         // ── Sidebar ──
         egui::SidePanel::left("room_sidebar")
@@ -97,7 +120,7 @@ impl GuiApp {
                             ui.label(
                                 egui::RichText::new(format!("{}", rooms.len()))
                                     .small()
-                                    .color(egui::Color32::from_rgb(140, 148, 165)),
+                                    .color(palette::TEXT_DIM),
                             );
                         },
                     );
@@ -165,7 +188,12 @@ impl GuiApp {
 
                 egui::ScrollArea::vertical().show(ui, |ui: &mut egui::Ui| {
                     if rooms.is_empty() {
-                        ui.colored_label(egui::Color32::from_rgb(140, 148, 165), "暂无房间");
+                        palette::empty_state_small(
+                            ui,
+                            "○",
+                            "暂无房间",
+                            Some("点击\"新建房间\"或按 N 创建"),
+                        );
                     }
                     for room in &rooms {
                         let selected = self.selected_room_id.as_ref() == Some(&room.id);
@@ -173,21 +201,36 @@ impl GuiApp {
 
                         let resp = ui.vertical(|ui: &mut egui::Ui| {
                             let resp = ui
-                                .selectable_label(selected, &room.id)
-                                .on_hover_text(&room.script_dir);
-                            ui.colored_label(
-                                color,
+                                .horizontal(|ui: &mut egui::Ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
+                                    palette::status_dot(ui, color);
+                                    let label_text = egui::RichText::new(&room.id)
+                                        .strong()
+                                        .color(if selected {
+                                            palette::TEXT_BRIGHT
+                                        } else {
+                                            palette::TEXT_PRIMARY
+                                        });
+                                    ui.selectable_label(selected, label_text)
+                                        .on_hover_text(&room.script_dir)
+                                })
+                                .inner;
+                            ui.label(
                                 egui::RichText::new(format!(
-                                    "  {} | {} 人",
+                                    "    {} · {} 人",
                                     status_text,
                                     room.players.len()
                                 ))
-                                .size(12.0),
+                                .size(12.0)
+                                .color(palette::TEXT_DIM),
                             );
                             resp
                         });
                         if resp.inner.clicked() {
                             self.selected_room_id = Some(room.id.clone());
+                        }
+                        if need_scroll && selected {
+                            resp.response.scroll_to_me(Some(egui::Align::Center));
                         }
                         ui.add_space(2.0);
                     }
@@ -201,14 +244,12 @@ impl GuiApp {
                 let room_id = match self.selected_room_id.clone() {
                     Some(id) => id,
                     None => {
-                        ui.vertical_centered(|ui: &mut egui::Ui| {
-                            ui.add_space(ui.available_height() * 0.35);
-                            ui.label(
-                                egui::RichText::new("请选择或创建一个房间")
-                                    .size(16.0)
-                                    .color(egui::Color32::from_rgb(140, 148, 165)),
-                            );
-                        });
+                        palette::empty_state(
+                            ui,
+                            "○",
+                            "请选择或创建一个房间",
+                            Some("↑↓ 切换 · N 新建 · / 命令"),
+                        );
                         return;
                     }
                 };
@@ -240,19 +281,19 @@ impl GuiApp {
                             .show(ui, |ui: &mut egui::Ui| {
                                 ui.label(
                                     egui::RichText::new("脚本:")
-                                        .color(egui::Color32::from_rgb(140, 148, 165)),
+                                        .color(palette::TEXT_DIM),
                                 );
                                 ui.label(&room_info.script_dir);
                                 ui.end_row();
                                 ui.label(
                                     egui::RichText::new("模式:")
-                                        .color(egui::Color32::from_rgb(140, 148, 165)),
+                                        .color(palette::TEXT_DIM),
                                 );
                                 ui.label(room_info.mode_id.to_string());
                                 ui.end_row();
                                 ui.label(
                                     egui::RichText::new("运行时间:")
-                                        .color(egui::Color32::from_rgb(140, 148, 165)),
+                                        .color(palette::TEXT_DIM),
                                 );
                                 ui.label(format_duration(room_info.game_time));
                                 ui.end_row();
@@ -261,7 +302,7 @@ impl GuiApp {
                         if !room_info.error_msg.is_empty() {
                             ui.add_space(4.0);
                             ui.colored_label(
-                                egui::Color32::from_rgb(255, 95, 95),
+                                palette::DANGER,
                                 format!("错误: {}", room_info.error_msg),
                             );
                         }
@@ -277,11 +318,11 @@ impl GuiApp {
                             if ui
                                 .add(egui::Button::new(
                                     egui::RichText::new("删除")
-                                        .color(egui::Color32::from_rgb(255, 105, 105)),
+                                        .color(palette::DANGER),
                                 ))
                                 .clicked()
                             {
-                                delete_room = Some(room_id.clone());
+                                self.request_delete_room(room_id.clone());
                             }
                         });
                     });
@@ -301,7 +342,7 @@ impl GuiApp {
                                             room_info.players.len()
                                         ))
                                         .small()
-                                        .color(egui::Color32::from_rgb(140, 148, 165)),
+                                        .color(palette::TEXT_DIM),
                                     );
                                 },
                             );
@@ -329,12 +370,12 @@ impl GuiApp {
                                     ui.label(p.map_level.to_string());
                                     if p.is_connected {
                                         ui.colored_label(
-                                            egui::Color32::from_rgb(75, 215, 105),
+                                            palette::SUCCESS,
                                             "在线",
                                         );
                                     } else {
                                         ui.colored_label(
-                                            egui::Color32::from_rgb(140, 148, 165),
+                                            palette::TEXT_DIM,
                                             "离线",
                                         );
                                     }
@@ -384,16 +425,19 @@ impl GuiApp {
                         ui.add_space(4.0);
                         ui.horizontal(|ui: &mut egui::Ui| {
                             ui.label("槽位:");
-                            ui.add(
+                            let idx_resp = ui.add(
                                 egui::TextEdit::singleline(&mut self.add_player_index)
                                     .desired_width(35.0),
                             );
                             ui.label("名称:");
-                            ui.add(
+                            let name_resp = ui.add(
                                 egui::TextEdit::singleline(&mut self.add_player_name)
                                     .desired_width(100.0),
                             );
-                            if ui.button("添加").clicked() {
+                            let click_add = ui.button("添加").clicked();
+                            let enter_in_form = (idx_resp.lost_focus() || name_resp.lost_focus())
+                                && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            if click_add || enter_in_form {
                                 if let Ok(idx) = self.add_player_index.parse::<i32>() {
                                     let name = if self.add_player_name.is_empty() {
                                         format!("Player_{}", idx)
@@ -416,16 +460,19 @@ impl GuiApp {
                     ui.group(|ui: &mut egui::Ui| {
                         section_heading(ui, "发送事件");
 
+                        let mut ename_resp: Option<egui::Response> = None;
+                        let mut edata_resp: Option<egui::Response> = None;
+
                         egui::Grid::new("event_form_grid")
                             .num_columns(2)
                             .spacing([8.0, 6.0])
                             .show(ui, |ui: &mut egui::Ui| {
                                 ui.label("事件名:");
                                 ui.horizontal(|ui: &mut egui::Ui| {
-                                    ui.add(
+                                    ename_resp = Some(ui.add(
                                         egui::TextEdit::singleline(&mut self.event_name)
                                             .desired_width(200.0),
-                                    );
+                                    ));
                                     ui.label("玩家:");
                                     let player_text = if self.event_player_idx < 0 {
                                         "全部".to_string()
@@ -453,15 +500,26 @@ impl GuiApp {
                                 ui.end_row();
 
                                 ui.label("数据:");
-                                ui.add(
+                                edata_resp = Some(ui.add(
                                     egui::TextEdit::singleline(&mut self.event_data)
                                         .desired_width(f32::INFINITY),
-                                );
+                                ));
                                 ui.end_row();
                             });
 
                         ui.add_space(4.0);
-                        if ui.button("发送").clicked() && !self.event_name.is_empty() {
+                        let click_send = ui.button("发送").clicked();
+                        let enter_in_form = (ename_resp
+                            .as_ref()
+                            .map(|r| r.lost_focus())
+                            .unwrap_or(false)
+                            || edata_resp
+                                .as_ref()
+                                .map(|r| r.lost_focus())
+                                .unwrap_or(false))
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if (click_send || enter_in_form) && !self.event_name.is_empty() {
+                            let ename_for_recent = self.event_name.clone();
                             {
                                 let manager = self.manager.read().unwrap();
                                 if let Some(room) = manager.rooms.get(&room_id) {
@@ -475,18 +533,12 @@ impl GuiApp {
                                     }
                                 }
                             }
+                            self.record_recent_event(&ename_for_recent);
                             self.event_name.clear();
                             self.event_data.clear();
                         }
                     });
                 });
             });
-
-        if let Some(id) = delete_room {
-            self.manager.write().unwrap().destroy_room(&id);
-            if self.selected_room_id.as_ref() == Some(&id) {
-                self.selected_room_id = None;
-            }
-        }
     }
 }

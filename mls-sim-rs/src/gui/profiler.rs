@@ -4,9 +4,10 @@ use eframe::egui;
 
 use crate::room::{ProfileData, ProfileNode};
 
+use super::palette;
 use super::{section_heading, GuiApp};
 
-const DIM: egui::Color32 = egui::Color32::from_rgb(140, 148, 165);
+const DIM: egui::Color32 = palette::TEXT_DIM;
 const BAR_H: f32 = 20.0;
 const BAR_GAP: f32 = 1.0;
 const MIN_BAR_W: f32 = 1.5;
@@ -124,7 +125,7 @@ impl GuiApp {
                                 if ui
                                     .button(
                                         egui::RichText::new("■ 停止")
-                                            .color(egui::Color32::from_rgb(255, 140, 140)),
+                                            .color(palette::DANGER),
                                     )
                                     .clicked()
                                 {
@@ -143,7 +144,7 @@ impl GuiApp {
                                 if ui
                                     .button(
                                         egui::RichText::new("▶ 开始")
-                                            .color(egui::Color32::from_rgb(120, 230, 140)),
+                                            .color(palette::SUCCESS),
                                     )
                                     .clicked()
                                 {
@@ -268,7 +269,7 @@ impl GuiApp {
                                         let is_c = f.id.starts_with("[C]:");
 
                                         let name_color = if is_c {
-                                            egui::Color32::from_rgb(130, 175, 235)
+                                            palette::PROFILER_C
                                         } else {
                                             ui.visuals().text_color()
                                         };
@@ -280,7 +281,7 @@ impl GuiApp {
                                                 .color(name_color),
                                         );
 
-                                        pct_bar(ui, self_pct, egui::Color32::from_rgb(230, 115, 60));
+                                        pct_bar(ui, self_pct, palette::PROFILER_HOT);
                                         ui.label(
                                             egui::RichText::new(format_ms(self_frame))
                                                 .monospace()
@@ -288,7 +289,7 @@ impl GuiApp {
                                                 .color(ms_color(self_frame, frame_ms)),
                                         );
 
-                                        pct_bar(ui, total_pct, egui::Color32::from_rgb(100, 160, 230));
+                                        pct_bar(ui, total_pct, palette::PROFILER_BAR_TOTAL);
                                         ui.label(
                                             egui::RichText::new(format_ms(total_frame))
                                                 .monospace()
@@ -574,9 +575,9 @@ fn format_ms(ms: f64) -> String {
 fn ms_color(ms: f64, frame_ms: f64) -> egui::Color32 {
     let ratio = (ms / frame_ms).min(1.0);
     if ratio > 0.5 {
-        egui::Color32::from_rgb(255, 90, 90)
+        palette::DANGER
     } else if ratio > 0.2 {
-        egui::Color32::from_rgb(255, 200, 80)
+        palette::WARNING
     } else {
         egui::Color32::from_rgb(180, 210, 180)
     }

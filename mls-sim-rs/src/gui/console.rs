@@ -1,9 +1,20 @@
 use eframe::egui;
 
+use super::palette;
 use super::{format_time, section_heading, GuiApp};
 
 impl GuiApp {
     pub(crate) fn console_tab(&mut self, ctx: &egui::Context) {
+        // Ctrl+F — request focus to the 搜索 TextEdit (consumed below when it renders).
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::F)) {
+            self.focus_search = true;
+        }
+
+        // Ctrl+K — clear logs.
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::K)) {
+            self.logs.clear();
+        }
+
         let room_ids: Vec<String> = {
             let mut ids: Vec<String> = self.subscribed_rooms.iter().cloned().collect();
             ids.sort();
@@ -29,8 +40,7 @@ impl GuiApp {
                     for (label, value) in &levels {
                         let selected = self.log_level_filter == *value;
                         let text = if *value == "ERR" && selected {
-                            egui::RichText::new(*label)
-                                .color(egui::Color32::from_rgb(255, 100, 100))
+                            egui::RichText::new(*label).color(palette::DANGER)
                         } else {
                             egui::RichText::new(*label)
                         };
@@ -60,11 +70,23 @@ impl GuiApp {
                     ui.separator();
 
                     ui.label(egui::RichText::new("搜索:").strong());
-                    ui.add(
+                    let search_resp = ui.add(
                         egui::TextEdit::singleline(&mut self.log_search)
                             .desired_width(120.0)
                             .hint_text("关键字..."),
                     );
+                    if self.consume_focus_search() {
+                        search_resp.request_focus();
+                    }
+                    // Esc while search focused with content → clear (don't blur — next Esc will).
+                    if search_resp.has_focus()
+                        && !self.log_search.is_empty()
+                        && ctx.input_mut(|i| {
+                            i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                        })
+                    {
+                        self.log_search.clear();
+                    }
 
                     ui.separator();
                     ui.checkbox(&mut self.auto_scroll, "自动滚动");
@@ -78,7 +100,7 @@ impl GuiApp {
                             ui.label(
                                 egui::RichText::new(format!("{} 条", self.logs.len()))
                                     .small()
-                                    .color(egui::Color32::from_rgb(140, 148, 165)),
+                                    .color(palette::TEXT_DIM),
                             );
                         },
                     );
@@ -120,19 +142,10 @@ impl GuiApp {
                     .show_rows(ui, row_height, total, |ui: &mut egui::Ui, row_range| {
                         for i in row_range {
                             let log = filtered_logs[i];
-                            let (level_color, msg_color) = match log.level.as_str() {
-                                "ERR" => (
-                                    egui::Color32::from_rgb(255, 95, 95),
-                                    egui::Color32::from_rgb(255, 175, 175),
-                                ),
-                                "DBG" => (
-                                    egui::Color32::from_rgb(130, 140, 158),
-                                    egui::Color32::from_rgb(168, 175, 190),
-                                ),
-                                _ => (
-                                    egui::Color32::from_rgb(75, 215, 105),
-                                    ui.visuals().text_color(),
-                                ),
+                            let msg_color = match log.level.as_str() {
+                                "ERR" => palette::DANGER_BRIGHT,
+                                "DBG" => palette::TEXT_DIM,
+                                _ => ui.visuals().text_color(),
                             };
 
                             ui.horizontal(|ui: &mut egui::Ui| {
@@ -141,19 +154,16 @@ impl GuiApp {
                                     egui::RichText::new(format_time(log.timestamp))
                                         .monospace()
                                         .size(13.0)
-                                        .color(egui::Color32::from_rgb(140, 148, 165)),
+                                        .color(palette::TEXT_DIM),
                                 );
-                                ui.label(
-                                    egui::RichText::new(format!(" [{}]", log.level))
-                                        .monospace()
-                                        .size(13.0)
-                                        .color(level_color),
-                                );
+                                ui.add_space(2.0);
+                                palette::level_chip(ui, &log.level);
+                                ui.add_space(2.0);
                                 ui.label(
                                     egui::RichText::new(format!(" [{}] ", log.room_id))
                                         .monospace()
                                         .size(13.0)
-                                        .color(egui::Color32::from_rgb(110, 168, 238)),
+                                        .color(palette::INFO),
                                 );
                                 ui.label(
                                     egui::RichText::new(&log.message)

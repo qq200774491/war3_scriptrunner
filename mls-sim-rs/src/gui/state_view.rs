@@ -1,5 +1,6 @@
 use eframe::egui;
 
+use super::palette;
 use super::{section_heading, GuiApp};
 
 impl GuiApp {
@@ -47,14 +48,12 @@ impl GuiApp {
                 ui.add_space(4.0);
 
                 if self.state_room_id.is_none() {
-                    ui.vertical_centered(|ui: &mut egui::Ui| {
-                        ui.add_space(ui.available_height() * 0.3);
-                        ui.label(
-                            egui::RichText::new("请选择一个房间查看状态")
-                                .size(15.0)
-                                .color(egui::Color32::from_rgb(140, 148, 165)),
-                        );
-                    });
+                    palette::empty_state(
+                        ui,
+                        "○",
+                        "请选择一个房间查看状态",
+                        Some("Ctrl+4 切到此页 · 上方下拉框选择"),
+                    );
                     return;
                 }
 

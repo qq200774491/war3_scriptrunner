@@ -199,6 +199,10 @@ pub struct AppConfig {
     pub auto_open_browser: bool,
     #[serde(default = "default_archive_dir")]
     pub archive_dir: String,
+    #[serde(default = "default_true")]
+    pub pipe_enable: bool,
+    #[serde(default = "default_pipe_name")]
+    pub pipe_name: String,
     pub auto_room: Option<AutoRoomConfig>,
 }
 
@@ -214,6 +218,9 @@ fn default_true() -> bool {
 fn default_archive_dir() -> String {
     "./archives".into()
 }
+fn default_pipe_name() -> String {
+    "mls-sim-bridge".into()
+}
 
 impl Default for AppConfig {
     fn default() -> Self {
@@ -222,6 +229,8 @@ impl Default for AppConfig {
             port: default_port(),
             auto_open_browser: true,
             archive_dir: default_archive_dir(),
+            pipe_enable: true,
+            pipe_name: default_pipe_name(),
             auto_room: None,
         }
     }

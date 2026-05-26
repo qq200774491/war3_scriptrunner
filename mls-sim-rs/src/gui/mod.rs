@@ -1,11 +1,13 @@
 mod console;
 mod events;
+mod palette;
+mod parse;
 mod profiler;
 mod rooms;
 mod settings;
 mod state_view;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
@@ -17,7 +19,12 @@ use crate::player::Player;
 use crate::room::{LogEntry, OutEvent, RoomManager};
 use crate::storage;
 
-#[derive(PartialEq)]
+use parse::{
+    apply_completion, compute_completions, matching_command_hints, parse_event_command,
+    push_recent_event, split_command_args, tokens_for_completion, CommandHistory,
+};
+
+#[derive(PartialEq, Clone, Copy)]
 pub enum Tab {
     Rooms,
     Console,
@@ -27,56 +34,55 @@ pub enum Tab {
     Settings,
 }
 
-struct CommandHint {
-    name: &'static str,
-    usage: &'static str,
+const TAB_COUNT: usize = 6;
+
+impl Tab {
+    fn from_idx(i: usize) -> Option<Tab> {
+        Some(match i {
+            0 => Tab::Rooms,
+            1 => Tab::Console,
+            2 => Tab::Events,
+            3 => Tab::State,
+            4 => Tab::Profiler,
+            5 => Tab::Settings,
+            _ => return None,
+        })
+    }
+    fn to_idx(self) -> usize {
+        match self {
+            Tab::Rooms => 0,
+            Tab::Console => 1,
+            Tab::Events => 2,
+            Tab::State => 3,
+            Tab::Profiler => 4,
+            Tab::Settings => 5,
+        }
+    }
 }
 
-const COMMAND_HINTS: &[CommandHint] = &[
-    CommandHint {
-        name: "rooms",
-        usage: "rooms - 列出所有房间",
-    },
-    CommandHint {
-        name: "clear",
-        usage: "clear - 清空控制台日志",
-    },
-    CommandHint {
-        name: "create",
-        usage: "create <脚本目录> [模式] - 创建房间",
-    },
-    CommandHint {
-        name: "select",
-        usage: "select <房间> - 选择房间",
-    },
-    CommandHint {
-        name: "stop",
-        usage: "stop <房间> - 停止房间",
-    },
-    CommandHint {
-        name: "destroy",
-        usage: "destroy <房间> - 删除房间",
-    },
-    CommandHint {
-        name: "restart",
-        usage: "restart <房间> - 重启房间",
-    },
-    CommandHint {
-        name: "join",
-        usage: "join <房间> <槽位> [名称] - 玩家上线",
-    },
-    CommandHint {
-        name: "leave",
-        usage: "leave <房间> <槽位> - 玩家离线",
-    },
-    CommandHint {
-        name: "exit",
-        usage: "exit <房间> <槽位> - 玩家退出",
-    },
-    CommandHint {
-        name: "event",
-        usage: "event <房间> <事件名> [数据] [玩家] - 发送事件",
-    },
+// Single source of truth for the F1 cheatsheet. Add new bindings here.
+struct Keybinding {
+    scope: &'static str,
+    keys: &'static str,
+    desc: &'static str,
+}
+
+const KEYBINDINGS: &[Keybinding] = &[
+    Keybinding { scope: "全局",   keys: "Ctrl+1 .. Ctrl+6",          desc: "切到对应标签页" },
+    Keybinding { scope: "全局",   keys: "Ctrl+Tab / Ctrl+Shift+Tab", desc: "循环切换标签页" },
+    Keybinding { scope: "全局",   keys: "/  或  Ctrl+L",             desc: "聚焦命令栏" },
+    Keybinding { scope: "全局",   keys: "F1",                        desc: "显示/隐藏本帮助" },
+    Keybinding { scope: "全局",   keys: "Esc",                       desc: "关闭弹窗 / 清空输入 / 失焦" },
+    Keybinding { scope: "命令栏", keys: "↑ / ↓",                     desc: "回溯/前进命令历史" },
+    Keybinding { scope: "命令栏", keys: "Tab / Shift+Tab",           desc: "循环候选补全（命令名 / 房间ID / 玩家 / 事件名）" },
+    Keybinding { scope: "命令栏", keys: "Enter",                     desc: "执行命令" },
+    Keybinding { scope: "房间",   keys: "↑ / ↓",                     desc: "在房间列表中切换选中" },
+    Keybinding { scope: "房间",   keys: "N",                         desc: "切换\"新建房间\"表单" },
+    Keybinding { scope: "房间",   keys: "Delete",                    desc: "删除当前选中房间（需二次确认）" },
+    Keybinding { scope: "房间",   keys: "Enter（表单聚焦）",         desc: "提交对应表单（添加玩家 / 发送事件）" },
+    Keybinding { scope: "控制台", keys: "Ctrl+F",                    desc: "聚焦搜索框" },
+    Keybinding { scope: "控制台", keys: "Ctrl+K",                    desc: "清空日志" },
+    Keybinding { scope: "控制台", keys: "Esc（搜索框聚焦）",         desc: "清空搜索内容 → 失焦" },
 ];
 
 pub struct GuiApp {
@@ -123,10 +129,21 @@ pub struct GuiApp {
     pub profiler_frame_ms: f32,
     pub profiler_hover_info: String,
 
-    // Status
+    // Status / command bar
     pub save_msg: Option<(String, bool, f64)>,
     pub command_input: String,
     pub command_msg: Option<(String, bool, f64)>,
+
+    // Keyboard / UX state
+    pub(crate) history: CommandHistory,
+    pub(crate) command_input_prev: String,
+    pub(crate) popup_cursor: Option<usize>,
+    pub(crate) recent_events: VecDeque<String>,
+    pub(crate) delete_confirm: Option<String>,
+    pub(crate) show_keybindings: bool,
+    pub(crate) focus_command: bool,
+    pub(crate) focus_search: bool,
+    pub(crate) scroll_to_selected_room: bool,
 }
 
 impl GuiApp {
@@ -184,6 +201,15 @@ impl GuiApp {
             save_msg: None,
             command_input: String::new(),
             command_msg: None,
+            history: CommandHistory::new(),
+            command_input_prev: String::new(),
+            popup_cursor: None,
+            recent_events: VecDeque::new(),
+            delete_confirm: None,
+            show_keybindings: false,
+            focus_command: false,
+            focus_search: false,
+            scroll_to_selected_room: false,
         }
     }
 
@@ -251,7 +277,176 @@ impl GuiApp {
         }
     }
 
+    // ─────────── pub(crate) helpers used by sibling tab modules ───────────
+
+    /// Record an ename so it appears in `event` command completion next time.
+    pub(crate) fn record_recent_event(&mut self, ename: &str) {
+        push_recent_event(&mut self.recent_events, ename);
+    }
+
+    /// Stage a room for deletion; the modal will pick it up on the next frame.
+    pub(crate) fn request_delete_room(&mut self, id: String) {
+        self.delete_confirm = Some(id);
+    }
+
+    /// Wrap-around navigation through the sorted room list.
+    pub(crate) fn navigate_rooms(&mut self, direction: i32) {
+        let rooms = self.sorted_room_ids();
+        if rooms.is_empty() {
+            return;
+        }
+        let cur_idx = self
+            .selected_room_id
+            .as_ref()
+            .and_then(|id| rooms.iter().position(|r| r == id));
+        let new_idx = match cur_idx {
+            None => {
+                if direction > 0 {
+                    0
+                } else {
+                    rooms.len() - 1
+                }
+            }
+            Some(i) => {
+                let len = rooms.len() as i32;
+                ((i as i32 + direction).rem_euclid(len)) as usize
+            }
+        };
+        self.selected_room_id = Some(rooms[new_idx].clone());
+        self.scroll_to_selected_room = true;
+    }
+
+    pub(crate) fn sorted_room_ids(&self) -> Vec<String> {
+        let mgr = match self.manager.try_read() {
+            Ok(m) => m,
+            Err(_) => return Vec::new(),
+        };
+        let mut v: Vec<String> = mgr.rooms.keys().cloned().collect();
+        v.sort();
+        v
+    }
+
+    pub(crate) fn consume_scroll_to_selected_room(&mut self) -> bool {
+        let v = self.scroll_to_selected_room;
+        self.scroll_to_selected_room = false;
+        v
+    }
+
+    pub(crate) fn consume_focus_search(&mut self) -> bool {
+        let v = self.focus_search;
+        self.focus_search = false;
+        v
+    }
+
+    // ─────────── Global key dispatch ───────────
+
+    fn handle_global_keys(&mut self, ctx: &egui::Context) {
+        // F1 toggles help overlay — works regardless of focus.
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F1)) {
+            self.show_keybindings = !self.show_keybindings;
+        }
+
+        // Esc priority chain (highest layer here; command bar / search handle their own).
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            if self.show_keybindings {
+                self.show_keybindings = false;
+                ctx.input_mut(|i| {
+                    let _ = i.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
+                });
+            } else if self.delete_confirm.is_some() {
+                self.delete_confirm = None;
+                ctx.input_mut(|i| {
+                    let _ = i.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
+                });
+            }
+        }
+
+        // When delete modal is open, Enter = confirm. Consume it here so the underlying
+        // tab (e.g. rooms.rs's 添加/发送 forms) doesn't also see Enter.
+        if self.delete_confirm.is_some()
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+        {
+            if let Some(id) = self.delete_confirm.take() {
+                self.manager.write().unwrap().destroy_room(&id);
+                if self.selected_room_id.as_ref() == Some(&id) {
+                    self.selected_room_id = None;
+                }
+            }
+        }
+
+        // Ctrl+1..6 — switch tab
+        let num_keys = [
+            egui::Key::Num1,
+            egui::Key::Num2,
+            egui::Key::Num3,
+            egui::Key::Num4,
+            egui::Key::Num5,
+            egui::Key::Num6,
+        ];
+        for (i, key) in num_keys.iter().enumerate() {
+            if ctx.input_mut(|input| input.consume_key(egui::Modifiers::CTRL, *key)) {
+                if let Some(tab) = Tab::from_idx(i) {
+                    self.active_tab = tab;
+                }
+            }
+        }
+
+        // Ctrl+Tab / Ctrl+Shift+Tab — cycle
+        let ctrl_shift = egui::Modifiers {
+            ctrl: true,
+            shift: true,
+            ..Default::default()
+        };
+        if ctx.input_mut(|i| i.consume_key(ctrl_shift, egui::Key::Tab)) {
+            let prev = (self.active_tab.to_idx() + TAB_COUNT - 1) % TAB_COUNT;
+            if let Some(t) = Tab::from_idx(prev) {
+                self.active_tab = t;
+            }
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab)) {
+            let next = (self.active_tab.to_idx() + 1) % TAB_COUNT;
+            if let Some(t) = Tab::from_idx(next) {
+                self.active_tab = t;
+            }
+        }
+
+        // Ctrl+L — focus command bar (works regardless of focus, overrides browser-style)
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::L)) {
+            self.focus_command = true;
+        }
+
+        // Idle-only naked-key shortcuts (no text input focused)
+        let idle = ctx.memory(|m| m.focused().is_none());
+        if idle && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Slash)) {
+            self.focus_command = true;
+        }
+    }
+
+    // ─────────── Command bar ───────────
+
     fn command_line(&mut self, ctx: &egui::Context) {
+        // Compute completions ahead of borrowing self mutably for keys.
+        let candidates: Vec<String> = {
+            let rooms = self.sorted_room_ids();
+            let recent = self.recent_events.clone();
+            let mgr = self.manager.clone();
+            let players_fn = |id: &str| -> Vec<i32> {
+                let mgr = match mgr.try_read() {
+                    Ok(m) => m,
+                    Err(_) => return Vec::new(),
+                };
+                if let Some(r) = mgr.rooms.get(id) {
+                    if let Ok(s) = r.shared.try_read() {
+                        let mut v: Vec<i32> = s.players.keys().copied().collect();
+                        v.sort();
+                        return v;
+                    }
+                }
+                Vec::new()
+            };
+            compute_completions(&self.command_input, &rooms, players_fn, &recent)
+        };
+
         egui::TopBottomPanel::bottom("command_line")
             .frame(
                 egui::Frame::none()
@@ -262,37 +457,135 @@ impl GuiApp {
                 ui.horizontal(|ui: &mut egui::Ui| {
                     ui.label(egui::RichText::new("命令:").strong());
 
-                    let input_width = (ui.available_width()).max(160.0);
+                    let input_width = (ui.available_width() - 110.0).max(160.0);
                     let response = ui.add_sized(
                         [input_width, 24.0],
                         egui::TextEdit::singleline(&mut self.command_input)
                             .font(egui::TextStyle::Monospace)
+                            .lock_focus(true)
+                            .hint_text("输入命令（Tab补全 · ↑↓历史 · F1帮助）"),
                     );
 
-                    if !ui.input(|i| i.focused) {
-                        response.surrender_focus();
-                    } else {
-                        let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter))
-                            && (response.has_focus() || response.lost_focus());
-                        if enter_pressed {
-                            self.execute_command_input();
-                        } else {
-                            show_command_hint(ui.ctx(), &response, &self.command_input);
-                        }
+                    if self.focus_command {
+                        response.request_focus();
+                        self.focus_command = false;
                     }
+
+                    // Detect user typing → reset cursors so next Tab/↑ starts fresh.
+                    if self.command_input != self.command_input_prev {
+                        if response.has_focus() {
+                            self.popup_cursor = None;
+                            self.history.reset_cursor();
+                        }
+                        self.command_input_prev = self.command_input.clone();
+                    }
+
+                    let focused = response.has_focus();
+
+                    if focused {
+                        self.handle_command_bar_keys(ctx, &response, &candidates);
+                        render_command_popup(
+                            ctx,
+                            &response,
+                            &self.command_input,
+                            &candidates,
+                            self.popup_cursor,
+                        );
+                    }
+
+                    ui.label(
+                        egui::RichText::new("F1 帮助")
+                            .small()
+                            .color(palette::TEXT_DIM),
+                    );
                 });
 
                 if let Some((ref msg, is_err, ts)) = self.command_msg {
                     if current_ts() - ts < 6.0 {
                         let color = if is_err {
-                            egui::Color32::from_rgb(255, 95, 95)
+                            palette::DANGER
                         } else {
-                            egui::Color32::from_rgb(75, 215, 105)
+                            palette::SUCCESS
                         };
                         ui.colored_label(color, msg);
                     }
                 }
             });
+    }
+
+    fn handle_command_bar_keys(
+        &mut self,
+        ctx: &egui::Context,
+        response: &egui::Response,
+        candidates: &[String],
+    ) {
+        // Detect Shift+Tab BEFORE plain Tab so we don't double-consume.
+        let shift_tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
+        let tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+
+        if (tab || shift_tab) && !candidates.is_empty() {
+            let len = candidates.len() as i32;
+            let new_cursor = match self.popup_cursor {
+                None => {
+                    if shift_tab {
+                        (len - 1) as usize
+                    } else {
+                        0
+                    }
+                }
+                Some(i) => {
+                    let direction = if shift_tab { -1i32 } else { 1 };
+                    ((i as i32 + direction).rem_euclid(len)) as usize
+                }
+            };
+            let candidate = &candidates[new_cursor];
+            self.command_input = apply_completion(&self.command_input, candidate);
+            self.command_input_prev = self.command_input.clone();
+            self.popup_cursor = Some(new_cursor);
+        }
+
+        // ↑ / ↓ — history. Single-line TextEdit doesn't otherwise use these.
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)) {
+            if let Some(text) = self.history.navigate(1, &self.command_input) {
+                self.command_input = text;
+                self.command_input_prev = self.command_input.clone();
+                self.popup_cursor = None;
+            }
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {
+            if let Some(text) = self.history.navigate(-1, &self.command_input) {
+                self.command_input = text;
+                self.command_input_prev = self.command_input.clone();
+                self.popup_cursor = None;
+            }
+        }
+
+        // Esc — local priority chain: popup → clear input → blur
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            ctx.input_mut(|i| {
+                let _ = i.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
+            });
+            if self.popup_cursor.is_some() {
+                self.popup_cursor = None;
+            } else if !self.command_input.is_empty() {
+                self.command_input.clear();
+                self.command_input_prev.clear();
+                self.history.reset_cursor();
+            } else {
+                response.surrender_focus();
+            }
+        }
+
+        // Enter — execute. lock_focus(true) prevents the TextEdit from losing focus on Enter,
+        // so we keep the cursor here for the next command.
+        if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+            ctx.input_mut(|i| {
+                let _ = i.consume_key(egui::Modifiers::NONE, egui::Key::Enter);
+            });
+            self.execute_command_input();
+            self.popup_cursor = None;
+            self.focus_command = true;
+        }
     }
 
     fn execute_command_input(&mut self) {
@@ -302,6 +595,9 @@ impl GuiApp {
         }
 
         self.command_input.clear();
+        self.command_input_prev.clear();
+        self.history.push(command.clone());
+
         let now = current_ts();
         let (message, is_err) = match self.execute_command(&command) {
             Ok(message) => (message, false),
@@ -396,6 +692,7 @@ impl GuiApp {
         }
 
         self.selected_room_id = Some(room_id.to_string());
+        self.scroll_to_selected_room = true;
         self.active_tab = Tab::Rooms;
         Ok(format!("已选择房间 {}", room_id))
     }
@@ -485,37 +782,167 @@ impl GuiApp {
         Ok(format!("玩家 {} 已退出", player_index))
     }
 
-    fn command_send_event(&self, args: &[String]) -> Result<String, String> {
-        let room_id = required_arg(args, 1, "房间")?;
-        let event_name = required_arg(args, 2, "事件名")?;
-        let mut player_index = -1;
-        let data_end = if args.len() > 4 {
-            match args.last().unwrap().parse::<i32>() {
-                Ok(idx) => {
-                    player_index = idx;
-                    args.len() - 1
-                }
-                Err(_) => args.len(),
+    fn command_send_event(&mut self, args: &[String]) -> Result<String, String> {
+        let parsed = parse_event_command(args)?;
+        {
+            let manager = self.manager.read().unwrap();
+            let room = manager
+                .rooms
+                .get(&parsed.room_id)
+                .ok_or_else(|| format!("房间不存在: {}", parsed.room_id))?;
+            let errnu =
+                room.send_event(parsed.ename.clone(), parsed.evalue, parsed.player_index);
+            if errnu != crate::room::ERR_OK {
+                return Err(format!("发送事件失败: errnu={}", errnu));
             }
-        } else {
-            args.len()
-        };
-        let event_data = if data_end > 3 {
-            args[3..data_end].join(" ")
-        } else {
-            String::new()
+        }
+        self.record_recent_event(&parsed.ename);
+        Ok(format!("已发送事件 {} 到 {}", parsed.ename, parsed.room_id))
+    }
+
+    // ─────────── Overlays ───────────
+
+    fn render_delete_confirm(&mut self, ctx: &egui::Context) {
+        let id = match &self.delete_confirm {
+            Some(id) => id.clone(),
+            None => return,
         };
 
-        let manager = self.manager.read().unwrap();
-        let room = manager
-            .rooms
-            .get(room_id)
-            .ok_or_else(|| format!("房间不存在: {}", room_id))?;
-        let errnu = room.send_event(event_name.to_string(), event_data, player_index);
-        if errnu != crate::room::ERR_OK {
-            return Err(format!("发送事件失败: errnu={}", errnu));
+        let mut cancel = false;
+        let mut confirm = false;
+
+        egui::Window::new("确认删除房间")
+            .collapsible(false)
+            .resizable(false)
+            .movable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                ui.set_min_width(380.0);
+                ui.add_space(8.0);
+
+                // Centered warning icon + body
+                ui.vertical_centered(|ui| {
+                    ui.label(
+                        egui::RichText::new("⚠")
+                            .size(36.0)
+                            .color(palette::WARNING),
+                    );
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new(format!("删除房间 \"{}\"", id))
+                            .size(15.0)
+                            .strong()
+                            .color(palette::TEXT_PRIMARY),
+                    );
+                    ui.add_space(2.0);
+                    ui.label(
+                        egui::RichText::new("此操作不可恢复")
+                            .size(13.0)
+                            .color(palette::TEXT_DIM),
+                    );
+                });
+
+                ui.add_space(14.0);
+
+                // Action buttons — danger button visually heavier
+                ui.vertical_centered(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+                        let delete_btn = egui::Button::new(
+                            egui::RichText::new("  删除  ")
+                                .strong()
+                                .color(egui::Color32::WHITE),
+                        )
+                        .fill(palette::DANGER);
+                        if ui.add(delete_btn).clicked() {
+                            confirm = true;
+                        }
+                        if ui.button("  取消  ").clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
+
+                ui.add_space(4.0);
+                ui.vertical_centered(|ui| {
+                    ui.label(
+                        egui::RichText::new("Enter 确认 · Esc 取消")
+                            .size(11.0)
+                            .color(palette::TEXT_FAINT),
+                    );
+                });
+                ui.add_space(4.0);
+            });
+
+        // Note: Enter for confirm is consumed in handle_global_keys earlier in this frame
+        // so the underlying tab forms don't double-fire.
+
+        if cancel {
+            self.delete_confirm = None;
+        } else if confirm {
+            self.delete_confirm = None;
+            self.manager.write().unwrap().destroy_room(&id);
+            if self.selected_room_id.as_ref() == Some(&id) {
+                self.selected_room_id = None;
+            }
         }
-        Ok(format!("已发送事件 {} 到 {}", event_name, room_id))
+    }
+
+    fn render_keybindings(&mut self, ctx: &egui::Context) {
+        if !self.show_keybindings {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new("键盘快捷键")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .order(egui::Order::Foreground)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.set_min_width(520.0);
+                egui::Grid::new("keybindings_grid")
+                    .num_columns(3)
+                    .striped(true)
+                    .spacing([14.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("范围").strong());
+                        ui.label(egui::RichText::new("按键").strong());
+                        ui.label(egui::RichText::new("作用").strong());
+                        ui.end_row();
+
+                        let mut last_scope = "";
+                        for kb in KEYBINDINGS {
+                            if kb.scope != last_scope {
+                                ui.label(
+                                    egui::RichText::new(kb.scope)
+                                        .strong()
+                                        .color(palette::ACCENT),
+                                );
+                                last_scope = kb.scope;
+                            } else {
+                                ui.label("");
+                            }
+                            ui.label(
+                                egui::RichText::new(kb.keys)
+                                    .monospace()
+                                    .color(palette::TEXT_PRIMARY),
+                            );
+                            ui.label(kb.desc);
+                            ui.end_row();
+                        }
+                    });
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("按 F1 或 Esc 关闭")
+                        .small()
+                        .color(palette::TEXT_DIM),
+                );
+            });
+        if !open {
+            self.show_keybindings = false;
+        }
     }
 }
 
@@ -529,15 +956,23 @@ impl Drop for GuiApp {
 
 impl eframe::App for GuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // DPI: sync to native pixels_per_point for crisp rendering
         if let Some(native_ppp) = ctx.native_pixels_per_point() {
             if (ctx.pixels_per_point() - native_ppp).abs() > 0.01 {
                 ctx.set_pixels_per_point(native_ppp);
             }
         }
 
+        // eframe may flip us into light mode if the system theme changes mid-session.
+        // Re-apply our dark style whenever we detect a flip. Cheap to check; only re-runs setup on actual changes.
+        if !ctx.style().visuals.dark_mode {
+            setup_style(ctx);
+        }
+
         self.sync_subscriptions();
         self.drain_channels();
+
+        // Global keys first so modals/tabs see consumed state.
+        self.handle_global_keys(ctx);
 
         let room_count = self.subscribed_rooms.len();
 
@@ -549,20 +984,43 @@ impl eframe::App for GuiApp {
             )
             .show(ctx, |ui: &mut egui::Ui| {
                 ui.horizontal(|ui: &mut egui::Ui| {
-                    ui.spacing_mut().item_spacing.x = 4.0;
-                    for (tab, label) in [
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    for (idx, (tab, label)) in [
                         (Tab::Rooms, "房间"),
                         (Tab::Console, "控制台"),
                         (Tab::Events, "出站事件"),
                         (Tab::State, "状态"),
                         (Tab::Profiler, "性能分析"),
                         (Tab::Settings, "设置"),
-                    ] {
-                        let selected = self.active_tab == tab;
-                        let text = egui::RichText::new(label).size(15.0);
-                        let text = if selected { text.strong() } else { text };
-                        if ui.selectable_label(selected, text).clicked() {
-                            self.active_tab = tab;
+                    ]
+                    .iter()
+                    .enumerate()
+                    {
+                        let selected = self.active_tab == *tab;
+                        let key_hint = egui::RichText::new(format!(" {}", idx + 1))
+                            .size(11.0)
+                            .color(palette::TEXT_FAINT);
+                        let label_text = egui::RichText::new(*label).size(15.0);
+                        let label_text = if selected {
+                            label_text.strong().color(palette::TEXT_BRIGHT)
+                        } else {
+                            label_text.color(palette::TEXT_DIM)
+                        };
+
+                        let resp = ui
+                            .horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 1.0;
+                                let r1 = ui.selectable_label(selected, label_text);
+                                let r2 = ui.selectable_label(selected, key_hint);
+                                r1.union(r2)
+                            })
+                            .inner;
+
+                        if resp.clicked() {
+                            self.active_tab = *tab;
+                        }
+                        if selected {
+                            palette::underline(ui.painter(), resp.rect, palette::ACCENT);
                         }
                     }
 
@@ -571,12 +1029,18 @@ impl eframe::App for GuiApp {
                         |ui: &mut egui::Ui| {
                             ui.label(
                                 egui::RichText::new(format!(
-                                    "房间: {}  |  日志: {}",
+                                    "房间 {} · 日志 {}",
                                     room_count,
                                     self.logs.len()
                                 ))
                                 .small()
-                                .color(egui::Color32::from_rgb(140, 148, 165)),
+                                .color(palette::TEXT_DIM),
+                            );
+                            ui.separator();
+                            ui.label(
+                                egui::RichText::new("/ 命令 · F1 帮助")
+                                    .small()
+                                    .color(palette::TEXT_DIM),
                             );
                         },
                     );
@@ -594,9 +1058,76 @@ impl eframe::App for GuiApp {
             Tab::Settings => self.settings_tab(ctx),
         }
 
+        // Modals last so they paint on top.
+        self.render_delete_confirm(ctx);
+        self.render_keybindings(ctx);
+
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
     }
 }
+
+// ─────────── Popup rendering ───────────
+
+fn render_command_popup(
+    ctx: &egui::Context,
+    response: &egui::Response,
+    input: &str,
+    candidates: &[String],
+    cursor: Option<usize>,
+) {
+    // Don't crowd the screen with the full command list before the user types anything.
+    if input.trim().is_empty() {
+        return;
+    }
+
+    let (tokens, _) = tokens_for_completion(input);
+    let at_command_position = tokens.is_empty();
+
+    let rows: Vec<String> = if at_command_position && !candidates.is_empty() {
+        let hints = matching_command_hints(input);
+        if !hints.is_empty() {
+            hints.iter().map(|h| h.usage.to_string()).collect()
+        } else {
+            candidates.to_vec()
+        }
+    } else {
+        candidates.to_vec()
+    };
+
+    if rows.is_empty() {
+        return;
+    }
+
+    let row_height = 20.0;
+    let visible = rows.len().min(10);
+    let popup_height = 12.0 + row_height * visible as f32;
+    let pos = egui::pos2(
+        response.rect.left(),
+        (response.rect.top() - popup_height - 6.0).max(0.0),
+    );
+
+    egui::Area::new(egui::Id::new("command_hint_popup"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(pos)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_min_width(response.rect.width().min(640.0));
+                for (i, row) in rows.iter().enumerate().take(visible) {
+                    let selected = cursor == Some(i);
+                    let mut text = egui::RichText::new(row).monospace().size(13.0);
+                    if selected {
+                        text = text
+                            .strong()
+                            .background_color(palette::ACCENT_BG)
+                            .color(palette::TEXT_BRIGHT);
+                    }
+                    ui.label(text);
+                }
+            });
+        });
+}
+
+// ─────────── Style / helpers ───────────
 
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
@@ -626,7 +1157,12 @@ fn setup_fonts(ctx: &egui::Context) {
 }
 
 fn setup_style(ctx: &egui::Context) {
+    // Start fresh from dark baseline so all text/stroke defaults are dark-mode-correct,
+    // even if eframe initialized us in light mode following system theme.
+    ctx.set_visuals(egui::Visuals::dark());
+
     let mut style = (*ctx.style()).clone();
+    style.visuals = egui::Visuals::dark();
 
     style.text_styles = [
         (
@@ -657,53 +1193,51 @@ fn setup_style(ctx: &egui::Context) {
     style.spacing.button_padding = egui::vec2(10.0, 5.0);
 
     let v = &mut style.visuals;
-    v.window_fill = egui::Color32::from_rgb(22, 22, 28);
-    v.panel_fill = egui::Color32::from_rgb(28, 28, 35);
-    v.faint_bg_color = egui::Color32::from_rgb(38, 40, 50);
-    v.extreme_bg_color = egui::Color32::from_rgb(14, 14, 18);
-    v.code_bg_color = egui::Color32::from_rgb(38, 40, 50);
+    v.window_fill = palette::BG_BASE;
+    v.panel_fill = palette::BG_PANEL;
+    v.faint_bg_color = palette::BG_RAISED;
+    v.extreme_bg_color = palette::BG_DEEP;
+    v.code_bg_color = palette::BG_RAISED;
 
-    v.error_fg_color = egui::Color32::from_rgb(255, 100, 100);
-    v.warn_fg_color = egui::Color32::from_rgb(255, 200, 80);
-    v.hyperlink_color = egui::Color32::from_rgb(100, 170, 255);
+    v.error_fg_color = palette::DANGER;
+    v.warn_fg_color = palette::WARNING;
+    v.hyperlink_color = palette::ACCENT;
 
-    v.selection.bg_fill = egui::Color32::from_rgb(45, 75, 135);
-    v.selection.stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 165, 255));
+    v.selection.bg_fill = palette::ACCENT_BG;
+    v.selection.stroke = egui::Stroke::new(1.0, palette::ACCENT);
 
-    v.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(35, 36, 44);
-    v.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(32, 33, 40);
-    v.widgets.noninteractive.bg_stroke =
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(62, 64, 80));
-    v.widgets.noninteractive.fg_stroke =
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(200, 205, 220));
+    v.widgets.noninteractive.bg_fill = palette::BG_NONINTERACTIVE;
+    v.widgets.noninteractive.weak_bg_fill = palette::BG_NONINTERACTIVE_WEAK;
+    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, palette::STROKE_NONINTERACTIVE);
+    v.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, palette::TEXT_PRIMARY);
     v.widgets.noninteractive.rounding = egui::Rounding::same(4.0);
 
-    v.widgets.inactive.bg_fill = egui::Color32::from_rgb(45, 46, 58);
-    v.widgets.inactive.weak_bg_fill = egui::Color32::from_rgb(40, 41, 52);
-    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 72, 90));
-    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(215, 218, 228));
+    v.widgets.inactive.bg_fill = palette::BG_INACTIVE;
+    v.widgets.inactive.weak_bg_fill = palette::BG_INACTIVE_WEAK;
+    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, palette::STROKE_BASE);
+    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, palette::TEXT_PRIMARY);
     v.widgets.inactive.rounding = egui::Rounding::same(4.0);
 
-    v.widgets.hovered.bg_fill = egui::Color32::from_rgb(58, 60, 76);
-    v.widgets.hovered.weak_bg_fill = egui::Color32::from_rgb(52, 54, 68);
-    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(100, 120, 190));
-    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, egui::Color32::from_rgb(240, 242, 250));
+    v.widgets.hovered.bg_fill = palette::BG_HOVERED;
+    v.widgets.hovered.weak_bg_fill = palette::BG_HOVERED_WEAK;
+    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, palette::STROKE_STRONG);
+    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, palette::TEXT_BRIGHT);
     v.widgets.hovered.rounding = egui::Rounding::same(4.0);
 
-    v.widgets.active.bg_fill = egui::Color32::from_rgb(65, 75, 110);
-    v.widgets.active.weak_bg_fill = egui::Color32::from_rgb(58, 66, 96);
-    v.widgets.active.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 145, 220));
+    v.widgets.active.bg_fill = palette::BG_ACTIVE;
+    v.widgets.active.weak_bg_fill = palette::BG_ACTIVE_WEAK;
+    v.widgets.active.bg_stroke = egui::Stroke::new(1.0, palette::ACCENT);
     v.widgets.active.fg_stroke = egui::Stroke::new(2.0, egui::Color32::WHITE);
     v.widgets.active.rounding = egui::Rounding::same(4.0);
 
-    v.widgets.open.bg_fill = egui::Color32::from_rgb(48, 50, 64);
-    v.widgets.open.weak_bg_fill = egui::Color32::from_rgb(44, 46, 58);
-    v.widgets.open.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(82, 85, 105));
-    v.widgets.open.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(222, 225, 240));
+    v.widgets.open.bg_fill = palette::BG_OPEN;
+    v.widgets.open.weak_bg_fill = palette::BG_OPEN_WEAK;
+    v.widgets.open.bg_stroke = egui::Stroke::new(1.0, palette::STROKE_OPEN);
+    v.widgets.open.fg_stroke = egui::Stroke::new(1.0, palette::TEXT_PRIMARY);
     v.widgets.open.rounding = egui::Rounding::same(4.0);
 
     v.window_rounding = egui::Rounding::same(6.0);
-    v.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(55, 58, 72));
+    v.window_stroke = egui::Stroke::new(1.0, palette::STROKE_FAINT);
     v.striped = true;
 
     ctx.set_style(style);
@@ -711,7 +1245,11 @@ fn setup_style(ctx: &egui::Context) {
 
 pub fn section_heading(ui: &mut egui::Ui, text: &str) {
     ui.add_space(2.0);
-    ui.label(egui::RichText::new(text).strong().size(16.0));
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        palette::accent_bar(ui, 18.0, palette::ACCENT);
+        ui.label(egui::RichText::new(text).strong().size(16.0));
+    });
     ui.add_space(2.0);
 }
 
@@ -732,107 +1270,6 @@ fn current_ts() -> f64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs_f64()
-}
-
-fn show_command_hint(ctx: &egui::Context, response: &egui::Response, input: &str) {
-    if !response.has_focus() {
-        return;
-    }
-
-    let hints = matching_command_hints(input);
-    if hints.is_empty() {
-        return;
-    }
-
-    let row_height = 20.0;
-    let popup_height = 10.0 + row_height * hints.len() as f32;
-    let pos = egui::pos2(
-        response.rect.left(),
-        (response.rect.top() - popup_height - 6.0).max(0.0),
-    );
-
-    egui::Area::new(egui::Id::new("command_hint_popup"))
-        .order(egui::Order::Foreground)
-        .fixed_pos(pos)
-        .show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.set_min_width(response.rect.width().min(640.0));
-                for hint in hints {
-                    ui.label(
-                        egui::RichText::new(hint.usage)
-                            .monospace()
-                            .size(13.0),
-                    );
-                }
-            });
-        });
-}
-
-fn matching_command_hints(input: &str) -> Vec<&'static CommandHint> {
-    let trimmed = input.trim_start();
-    if trimmed.is_empty() {
-        return COMMAND_HINTS.iter().collect();
-    }
-
-    let command = trimmed
-        .split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if command.is_empty() {
-        return Vec::new();
-    }
-
-    if let Some(hint) = COMMAND_HINTS.iter().find(|hint| hint.name == command) {
-        return vec![hint];
-    }
-
-    COMMAND_HINTS
-        .iter()
-        .filter(|hint| hint.name.starts_with(&command))
-        .take(5)
-        .collect()
-}
-
-fn split_command_args(command: &str) -> Result<Vec<String>, String> {
-    let mut args = Vec::new();
-    let mut current = String::new();
-    let mut quote: Option<char> = None;
-    let mut token_started = false;
-
-    for ch in command.chars() {
-        match (quote, ch) {
-            (Some(q), c) if c == q => {
-                quote = None;
-            }
-            (Some(_), c) => {
-                token_started = true;
-                current.push(c);
-            }
-            (None, '"') | (None, '\'') => {
-                quote = Some(ch);
-                token_started = true;
-            }
-            (None, c) if c.is_whitespace() => {
-                if token_started {
-                    args.push(std::mem::take(&mut current));
-                    token_started = false;
-                }
-            }
-            (None, c) => {
-                token_started = true;
-                current.push(c);
-            }
-        }
-    }
-
-    if let Some(q) = quote {
-        return Err(format!("缺少结束引号: {}", q));
-    }
-    if token_started {
-        args.push(current);
-    }
-    Ok(args)
 }
 
 fn required_arg<'a>(args: &'a [String], index: usize, name: &str) -> Result<&'a str, String> {
