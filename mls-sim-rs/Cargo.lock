@@ -2181,7 +2181,7 @@ dependencies = [
 
 [[package]]
 name = "mls-sim"
-version = "0.5.1"
+version = "0.5.3"
 dependencies = [
  "axum",
  "chrono",
