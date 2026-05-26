@@ -1,5 +1,4 @@
 use clap::Parser;
-use eframe::egui;
 use mls_sim::config::{AppConfig, Cli};
 use mls_sim::room::RoomManager;
 use mls_sim::{bridge, config, gui, pipe, storage};
@@ -102,16 +101,8 @@ fn main() {
     );
     println!();
 
-    let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 800.0])
-            .with_min_inner_size([800.0, 600.0]),
-        ..Default::default()
-    };
-
-    let _ = eframe::run_native(
-        &format!("MLS 云脚本环境模拟 v{}", env!("CARGO_PKG_VERSION")),
-        native_options,
-        Box::new(move |cc| Ok(Box::new(gui::GuiApp::new(cc, manager, config, config_path)))),
-    );
+    // 让主线程进入 tokio runtime，否则 dioxus webview 创建时
+    // 调 tokio::runtime::Handle::current() 会 panic
+    let _enter = rt.enter();
+    gui::launch_app(manager, config, config_path);
 }

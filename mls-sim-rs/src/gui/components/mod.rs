@@ -1,0 +1,9 @@
+pub mod command_bar;
+pub mod console;
+pub mod events;
+pub mod modals;
+pub mod profiler;
+pub mod rooms;
+pub mod settings;
+pub mod state_view;
+pub mod tab_bar;

@@ -11,7 +11,7 @@ authors = [
 repository = "https://github.com/qq200774491/war3_mls"
 
 [dependencies]
-eframe = "0.29"
+dioxus = { version = "0.7", features = ["desktop"] }
 axum = { version = "0.8", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 mlua = { version = "0.10", features = ["lua53", "vendored", "send", "serialize"] }
