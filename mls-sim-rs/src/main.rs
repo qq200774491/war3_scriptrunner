@@ -20,7 +20,10 @@ fn main() {
         }
     }
 
+    // 当 stdout 是终端时打彩色；重定向到文件时关掉 ANSI 转义码（避免 [2m[32m 这种"乱码"）
+    let use_ansi = std::io::IsTerminal::is_terminal(&std::io::stdout());
     tracing_subscriber::fmt()
+        .with_ansi(use_ansi)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )

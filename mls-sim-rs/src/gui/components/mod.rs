@@ -1,3 +1,4 @@
+pub mod about;
 pub mod command_bar;
 pub mod console;
 pub mod events;

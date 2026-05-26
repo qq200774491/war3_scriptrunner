@@ -1,0 +1,13 @@
+[mls/INF] console acquired (source=inherited)
+[mls/INF] dllmain: DLL_PROCESS_ATTACH (host=powershell.exe)
+[mls/INF] auto_test trigger: MLS_AUTO_TEST=1
+[mls/INF] dllmain: auto-test enabled, spawning worker thread
+[mls/INF] auto_test: thread starting
+[mls/INF] auto_test: Hello sent, awaiting HelloAck
+[mls/INF] auto_test: HelloAck ok=true errnu=0
+[mls/INF] auto_test: connected & ack ok
+[mls/INF] auto_test: send #0 ok=1
+[mls/INF] auto_test: send #1 ok=1
+[mls/INF] auto_test: send #2 ok=1
+[mls/INF] auto_test: send #3 ok=1
+[mls/INF] auto_test: send #4 ok=1

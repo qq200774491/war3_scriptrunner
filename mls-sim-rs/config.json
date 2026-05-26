@@ -1,0 +1,38 @@
+{
+  "host": "127.0.0.1",
+  "port": 5000,
+  "auto_open_browser": true,
+  "archive_dir": "./archives",
+  "pipe_enable": true,
+  "pipe_name": "mls-sim-bridge",
+  "auto_room": {
+    "script_dir": "C:\\Users\\admin\\Desktop\\script",
+    "mode_id": 0,
+    "map_version": null,
+    "env_type": null,
+    "prebook_count": null,
+    "rankings_loaded": null,
+    "rankings": null,
+    "players": [
+      {
+        "index": 0,
+        "name": "Player_0",
+        "items": {},
+        "map_level": null,
+        "map_exp": null,
+        "played_count": null,
+        "script_archive": null,
+        "common_archive": null,
+        "read_archive": null,
+        "cfg_archive": null,
+        "platform": null,
+        "activity": null,
+        "achievements": null,
+        "tasks": null,
+        "sign_in": null,
+        "community": null,
+        "guild": null
+      }
+    ]
+  }
+}

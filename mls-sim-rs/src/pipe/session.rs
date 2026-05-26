@@ -125,6 +125,10 @@ where
         };
         match frame {
             Frame::Event(p) => {
+                tracing::info!(
+                    "pipe: c2s event room={} player={} ename={:?} evalue_len={}",
+                    room_id, player_index, p.ename, p.evalue.len()
+                );
                 let err = dispatch_event(&manager, &room_id, p, player_index);
                 if err != ERR_OK
                     && ctrl_tx

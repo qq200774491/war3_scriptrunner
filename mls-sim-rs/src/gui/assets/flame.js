@@ -25,9 +25,36 @@
         return `hsl(${hue}, 55%, 50%)`;
     }
 
-    function flatten(node, depth, list) {
-        list.push({ name: node.name || node.id || '?', start: node.start || 0, dur: node.duration || node.dur || 0, depth });
-        if (node.children) for (const c of node.children) flatten(c, depth + 1, list);
+    function drawNode(ctx, node, x, y, w, totalSamples, rowH) {
+        if (w < 0.5 || y > cssH) return;
+        const name = node.name || node.id || '?';
+        ctx.fillStyle = colorFor(name, y / rowH | 0);
+        ctx.fillRect(x, y, Math.max(1, w - 1), rowH - 1);
+        if (w > 40) {
+            ctx.fillStyle = '#fff';
+            ctx.font = '11px monospace';
+            const maxChars = Math.floor((w - 6) / 6);
+            ctx.fillText(name.substring(0, maxChars), x + 3, y + 14);
+        }
+        const mx = hover ? hover.x : -1;
+        const my = hover ? hover.y : -1;
+        if (mx >= x && mx < x + w && my >= y && my < y + rowH) {
+            window.__mls_flame_hit = {
+                name: name,
+                id: node.id,
+                count: node.count || 0,
+                self_count: node.self_count || 0,
+                depth: y / rowH | 0,
+            };
+        }
+        // 递归渲染子节点
+        const children = node.children || [];
+        let cx = x;
+        for (const c of children) {
+            const cw = (c.count || 0) / Math.max(1, node.count || 1) * w;
+            drawNode(ctx, c, cx, y + rowH, cw, totalSamples, rowH);
+            cx += cw;
+        }
     }
 
     function draw() {
@@ -40,44 +67,35 @@
 
         const tip = document.getElementById('flame-tip');
 
-        if (!snapshot || !snapshot.data || !snapshot.data.root) {
+        if (!snapshot || !snapshot.data || !snapshot.data.root || !snapshot.data.total_samples) {
             ctx.fillStyle = '#666';
             ctx.font = '13px system-ui';
-            ctx.fillText(snapshot ? '（暂无 profile 数据，请确认目标房间已启动 profiler）' : '（请选择房间）', 16, 28);
+            const hint = snapshot ?
+                '（暂无 profile 数据，请点击「开始采样」并等几秒）' :
+                '（请选择房间）';
+            ctx.fillText(hint, 16, 28);
             if (tip) tip.style.display = 'none';
             requestAnimationFrame(draw);
             return;
         }
 
-        const list = [];
-        flatten(snapshot.data.root, 0, list);
-        const total = snapshot.data.root.duration || snapshot.data.root.dur || 1;
+        window.__mls_flame_hit = null;
+        const root = snapshot.data.root;
+        const total = snapshot.data.total_samples || root.count || 1;
         const rowH = 20;
-        let hit = null;
-        const mx = hover ? hover.x : -1;
-        const my = hover ? hover.y : -1;
+        drawNode(ctx, root, 0, 0, cssW, total, rowH);
 
-        for (const n of list) {
-            const x = (n.start / total) * cssW;
-            const w = Math.max(1, (n.dur / total) * cssW);
-            const y = n.depth * rowH;
-            if (y > cssH) continue;
-            ctx.fillStyle = colorFor(n.name, n.depth);
-            ctx.fillRect(x, y, w, rowH - 1);
-            if (w > 40) {
-                ctx.fillStyle = '#fff';
-                ctx.font = '11px monospace';
-                ctx.fillText(n.name.substring(0, Math.floor(w / 6)), x + 3, y + 14);
-            }
-            if (mx >= x && mx < x + w && my >= y && my < y + rowH) hit = n;
-        }
-
+        const hit = window.__mls_flame_hit;
         if (tip) {
-            if (hit) {
+            if (hit && hover) {
                 tip.style.display = 'block';
-                tip.style.left = (mx + 12) + 'px';
-                tip.style.top = (my + 12) + 'px';
-                tip.textContent = `${hit.name} · ${(hit.dur * 1000).toFixed(2)} ms (depth ${hit.depth})`;
+                tip.style.left = (hit.depth * 0 + (hover ? hover.clientX + 12 : 0)) + 'px';
+                tip.style.top = ((hover ? hover.clientY + 12 : 0)) + 'px';
+                const pct = (hit.count / total * 100).toFixed(1);
+                const selfPct = (hit.self_count / total * 100).toFixed(1);
+                tip.innerHTML = `<b>${hit.name}</b><br/>` +
+                    `<span style="color:#aaa">总: ${hit.count} 采样 (${pct}%)</span><br/>` +
+                    `<span style="color:#aaa">自身: ${hit.self_count} 采样 (${selfPct}%)</span>`;
             } else {
                 tip.style.display = 'none';
             }
@@ -98,7 +116,12 @@
             hover = null;
             return;
         }
-        hover = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        hover = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+            clientX: e.clientX,
+            clientY: e.clientY,
+        };
     });
 
     requestAnimationFrame(draw);

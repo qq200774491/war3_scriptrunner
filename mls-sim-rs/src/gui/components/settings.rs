@@ -65,7 +65,7 @@ pub fn Settings() -> Element {
                 }
             }
 
-            div { class: "actions",
+            div { class: "save-row",
                 button { class: "btn btn-primary", onclick: on_save, "保存配置" }
                 if msg_visible {
                     if let Some((msg, is_err, _)) = save_msg.as_ref() {
@@ -74,23 +74,6 @@ pub fn Settings() -> Element {
                             "{msg}"
                         }
                     }
-                }
-            }
-
-            section { class: "card",
-                h3 { "关于" }
-                p { "MLS 云脚本模拟器 v" { env!("CARGO_PKG_VERSION") } }
-                p { "本地 Lua 云脚本测试环境" }
-                p { class: "muted", "参与者: " { env!("CARGO_PKG_AUTHORS") } }
-                p {
-                    a {
-                        href: env!("CARGO_PKG_REPOSITORY"),
-                        target: "_blank",
-                        "GitHub 仓库"
-                    }
-                }
-                p { class: "mono small",
-                    "Bridge API: http://{SETTINGS_HOST}:{SETTINGS_PORT}/api/bridge/"
                 }
             }
         }

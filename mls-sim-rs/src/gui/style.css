@@ -18,6 +18,21 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+
+/* ── Custom scrollbar (Chromium / WebView2) ─────────── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+    background: #4a4a4f;
+    border-radius: 5px;
+    border: 2px solid var(--bg-base);
+    background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #6a6a70; background-clip: padding-box; border: 2px solid var(--bg-base); }
+::-webkit-scrollbar-button { display: none; height: 0; width: 0; }
+::-webkit-scrollbar-corner { background: transparent; }
+/* Firefox 兜底（dioxus desktop 用 Chromium，这里防御性写一下） */
+* { scrollbar-width: thin; scrollbar-color: #4a4a4f transparent; }
 body {
     background: var(--bg-base);
     color: var(--text-pri);
@@ -40,6 +55,14 @@ input, select, textarea {
     outline: none;
 }
 input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+
+/* 去掉 input[type=number] 的上下箭头（spinner）—— 工具型 UI 不需要 */
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
 .mono, .mono * { font-family: 'Consolas', 'Courier New', monospace; }
 .small { font-size: 11px; }
 .muted { color: var(--text-mut); }
@@ -104,7 +127,115 @@ a { color: var(--accent); }
 .form-row label { color: var(--text-sec); font-size: 12px; }
 
 /* ── Settings ────────────────────────────── */
-.settings { max-width: 640px; margin: 0 auto; }
+.settings { padding-bottom: 32px; }
+.save-row { display: flex; gap: 12px; align-items: center; padding: 0 16px; margin: 16px 0 8px; }
+/* ── About page ──────────────────────────── */
+.about-page { padding: 24px; }
+.about-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 24px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.about-title { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.about-name { color: var(--text-pri); font-weight: 700; font-size: 20px; }
+.about-ver { color: var(--accent); font-size: 13px; padding: 2px 8px; background: var(--accent-dim); border-radius: 10px; }
+.about-card p { margin: 2px 0; color: var(--text-sec); }
+.about-card section { margin-top: 20px; }
+.about-card h4 {
+    margin: 0 0 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-mut);
+    font-weight: 600;
+}
+.about-card a { color: var(--accent); text-decoration: none; }
+.about-card a:hover { text-decoration: underline; }
+
+/* Links row */
+.about-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.about-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    transition: background .12s, border-color .12s;
+}
+.about-link:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+    text-decoration: none !important;
+}
+
+/* Key-value rows */
+.kv-row { display: grid; grid-template-columns: 120px 1fr; gap: 12px; padding: 3px 0; font-size: 12px; }
+.kv-k { color: var(--text-mut); }
+.kv-v { color: var(--text-pri); }
+
+/* Contributors */
+.contributors { display: flex; flex-direction: column; gap: 8px; }
+.contrib {
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    transition: border-color .12s, background .12s;
+}
+.contrib:hover { border-color: var(--accent); background: var(--bg-hover); }
+.avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+}
+.avatar-img { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; }
+.avatar-init {
+    color: #fff;
+    font-weight: 600;
+    font-size: 16px;
+    z-index: 0;
+}
+.contrib-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.contrib-name { color: var(--text-pri); font-weight: 600; font-size: 14px; }
+.contrib-role { font-size: 11px; }
+.contrib-link {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    background: transparent;
+    transition: background .12s, border-color .12s;
+    white-space: nowrap;
+}
+.contrib-link:hover { background: var(--accent-dim); border-color: var(--accent); text-decoration: none !important; }
+
+/* Tech stack */
+.tech-stack { display: flex; flex-wrap: wrap; gap: 6px; }
+.tech-tag {
+    padding: 3px 10px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    font-size: 11px;
+    color: var(--text-sec);
+}
 
 /* ── State view ──────────────────────────── */
 .state-view { display: flex; flex-direction: column; height: 100%; }
@@ -122,11 +253,12 @@ a { color: var(--accent); }
 
 .evt-table .thead, .evt-table .tr { grid-template-columns: 90px 80px 50px 120px 1fr; }
 .player-table .thead, .player-table .tr { grid-template-columns: 60px 1fr 60px 70px 1fr; }
-.hot-table .thead, .hot-table .tr { grid-template-columns: 1fr 100px 60px; }
+.hot-table .thead, .hot-table .tr { grid-template-columns: 2fr 60px 80px 60px 120px; }
+.hot-section .hot-head { display: flex; align-items: baseline; gap: 8px; padding: 0 14px; }
+.hot-section h3 { margin: 8px 0 6px; font-size: 13px; }
 
 /* ── Console ─────────────────────────────── */
 .log-list { overflow: auto; flex: 1; padding: 0 8px; }
-.auto-scroll { display: flex; flex-direction: column-reverse; }
 .log-row { display: grid; grid-template-columns: 100px 36px 120px 1fr 4fr; gap: 6px; padding: 1px 4px; border-bottom: 1px solid var(--border-soft); align-items: baseline; line-height: 1.5; }
 .log-row:hover { background: var(--bg-hover); }
 .log-ts { color: var(--text-mut); }

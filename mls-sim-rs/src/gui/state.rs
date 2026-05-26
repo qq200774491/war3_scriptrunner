@@ -16,16 +16,18 @@ pub enum Tab {
     State,
     Profiler,
     Settings,
+    About,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 6] = [
+    pub const ALL: [Tab; 7] = [
         Tab::Rooms,
         Tab::Console,
         Tab::Events,
         Tab::State,
         Tab::Profiler,
         Tab::Settings,
+        Tab::About,
     ];
 
     pub fn label(self) -> &'static str {
@@ -36,6 +38,7 @@ impl Tab {
             Tab::State => "状态",
             Tab::Profiler => "性能",
             Tab::Settings => "设置",
+            Tab::About => "关于",
         }
     }
 

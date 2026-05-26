@@ -1,9 +1,12 @@
+use std::collections::HashMap;
+
 use dioxus::prelude::*;
 
 use crate::gui::state::{
     PROFILER_FRAME_MS, PROFILER_HOOK_COUNT, PROFILER_ROOM, PROFILER_WINDOW, PROFILE_SNAPSHOT,
 };
 use crate::gui::AppCtx;
+use crate::room::{ProfileData, ProfileNode};
 
 #[component]
 pub fn Profiler() -> Element {
@@ -21,40 +24,62 @@ pub fn Profiler() -> Element {
         v
     };
 
-    // 注入 flame.js 一次（脚本自我守门，重复注入无效果）
     let _ = use_resource(|| async {
         let _ = dioxus::document::eval(include_str!("../assets/flame.js")).await;
     });
 
-    // 监听 snapshot，每次变化推到 JS canvas
     use_effect(move || {
         let s = PROFILE_SNAPSHOT.read();
         let json = match s.as_ref() {
             Some(snap) => serde_json::to_string(snap).unwrap_or_default(),
             None => "null".to_string(),
         };
-        let _ = dioxus::document::eval(&format!("window.renderFlame && window.renderFlame({});", json));
+        let _ = dioxus::document::eval(&format!(
+            "window.renderFlame && window.renderFlame({});",
+            json
+        ));
     });
 
-    // Top 30 hot functions（直接从 snap.data.root 递归收集）
-    let hot: Vec<HotItem> = snap
+    let hot: Vec<HotFunc> = snap
         .as_ref()
         .and_then(|s| s.data.as_ref())
-        .map(top_hot)
+        .map(|d| collect_hot(d))
         .unwrap_or_default();
+    let total_samples = snap
+        .as_ref()
+        .and_then(|s| s.data.as_ref())
+        .map(|d| d.total_samples.max(1) as f64)
+        .unwrap_or(1.0);
+    let running = snap.as_ref().map(|s| s.running).unwrap_or(false);
+    let available = snap.as_ref().map(|s| s.available).unwrap_or(false);
 
-    let toggle_profiler = {
+    let start_or_stop = {
         let ctx = ctx.clone();
         move |_: Event<MouseData>| {
-            let rid = match PROFILER_ROOM.peek().clone() {
+            let rid = match PROFILER_ROOM() {
                 Some(r) => r,
                 None => return,
             };
             let mgr = ctx.manager.read().unwrap();
-            if let Some(_room) = mgr.rooms.get(&rid) {
-                // 实际启停由 sim 引擎控制；这里仅作触发占位（gui_legacy 也并未直接 toggle）
-                // 后续若有 Room::set_profiler_running 等 API，可在此调用。
-                tracing::info!("profiler toggle request for {}", rid);
+            if let Some(room) = mgr.rooms.get(&rid) {
+                if running {
+                    room.profiler_stop();
+                } else {
+                    room.profiler_start(PROFILER_HOOK_COUNT(), PROFILER_WINDOW());
+                }
+            }
+        }
+    };
+    let reset_profiler = {
+        let ctx = ctx.clone();
+        move |_: Event<MouseData>| {
+            let rid = match PROFILER_ROOM() {
+                Some(r) => r,
+                None => return,
+            };
+            let mgr = ctx.manager.read().unwrap();
+            if let Some(room) = mgr.rooms.get(&rid) {
+                room.profiler_reset();
             }
         }
     };
@@ -74,51 +99,82 @@ pub fn Profiler() -> Element {
                         option { value: "{id}", selected: selected.as_deref() == Some(id.as_str()), "{id}" }
                     }
                 }
-                label { "Hook 采样" }
+                label {
+                    title: "Lua 调试 hook 每执行多少条虚拟机指令触发一次采样。值越小越精准但开销大；100 ~ 500000",
+                    "采样间隔"
+                }
                 input {
                     r#type: "number",
                     value: "{hook}",
+                    title: "每 N 条 Lua 指令采样一次",
                     oninput: move |e| *PROFILER_HOOK_COUNT.write() = e.value().parse().unwrap_or(5000),
                     style: "max-width: 90px;",
                 }
-                label { "时间窗(s)" }
+                label {
+                    title: "保留最近多少秒的采样数据用于聚合（窗口长度）",
+                    "窗口长度"
+                }
                 input {
                     r#type: "number",
                     value: "{window_sec}",
+                    title: "秒",
                     oninput: move |e| *PROFILER_WINDOW.write() = e.value().parse().unwrap_or(15),
-                    style: "max-width: 60px;",
+                    style: "max-width: 70px;",
                 }
-                label { "帧时(ms)" }
+                label {
+                    title: "用于估算每个函数占满帧的耗时百分比（毫秒）。50 = 20fps、16.67 = 60fps",
+                    "目标帧时"
+                }
                 input {
                     r#type: "number",
                     value: "{frame_ms}",
+                    title: "毫秒，仅用于把采样占比换算成 ms/帧",
                     oninput: move |e| *PROFILER_FRAME_MS.write() = e.value().parse().unwrap_or(50.0),
-                    style: "max-width: 60px;",
+                    style: "max-width: 70px;",
                 }
-                if let Some(s) = snap.as_ref() {
-                    span { class: "muted small",
-                        if s.running { "● 采样中" } else { "○ 未运行" }
-                    }
+                span {
+                    class: if running { "ok small" } else { "muted small" },
+                    if running { "● 采样中" } else { "○ 未运行" }
                 }
-                button { class: "btn btn-sm", onclick: toggle_profiler, "重置" }
+                if !available && snap.is_some() {
+                    span { class: "warn small", "（采样不可用：脚本未启动？）" }
+                }
+                button {
+                    class: if running { "btn btn-sm btn-danger" } else { "btn btn-sm btn-primary" },
+                    onclick: start_or_stop,
+                    if running { "停止采样" } else { "开始采样" }
+                }
+                button { class: "btn btn-sm", onclick: reset_profiler, "重置" }
             }
             div { class: "flame-wrap",
                 canvas { id: "flame", style: "width: 100%; height: 320px; display: block; background: #1a1a1a;" }
                 div { id: "flame-tip", class: "flame-tip" }
             }
             div { class: "hot-section",
-                h3 { "Top 30 热点函数" }
+                div { class: "hot-head",
+                    h3 { "热点函数" }
+                    span { class: "muted small", "({hot.len()} 个 · 共 {total_samples as u64} 采样)" }
+                }
                 div { class: "table hot-table",
-                    div { class: "thead", div { "函数" } div { "总耗时(ms)" } div { "调用" } }
+                    div { class: "thead",
+                        div { "函数" }
+                        div { "自身%" }
+                        div { "自身 ms/帧" }
+                        div { "总计%" }
+                        div { "采样 自/总" }
+                    }
                     div { class: "tbody",
                         if hot.is_empty() {
-                            div { class: "tr empty", div { class: "td", "（无数据）" } }
+                            div { class: "empty", "（暂无数据 · 点「开始采样」后稍候）" }
                         }
-                        for h in hot.iter() {
-                            div { class: "tr",
-                                div { class: "td mono small", "{h.name}" }
-                                div { class: "td mono small", "{(h.total_ms):.2}" }
-                                div { class: "td mono small", "{h.calls}" }
+                        for h in hot.iter().take(30) {
+                            HotRow {
+                                name: h.name.clone(),
+                                id: h.id.clone(),
+                                self_count: h.self_count,
+                                total_count: h.total_count,
+                                total_samples: total_samples,
+                                frame_ms: frame_ms as f64,
                             }
                         }
                     }
@@ -129,60 +185,59 @@ pub fn Profiler() -> Element {
 }
 
 #[derive(Clone)]
-struct HotItem {
+struct HotFunc {
     name: String,
-    total_ms: f64,
-    calls: u64,
+    id: String,
+    self_count: u64,
+    total_count: u64,
 }
 
-fn top_hot(data: &crate::room::ProfileData) -> Vec<HotItem> {
-    use std::collections::HashMap;
-    let mut by_name: HashMap<String, (f64, u64)> = HashMap::new();
-    if let Ok(v) = serde_json::to_value(data) {
-        collect_nodes(&v, &mut by_name);
+fn collect_hot(data: &ProfileData) -> Vec<HotFunc> {
+    let mut map: HashMap<String, HotFunc> = HashMap::new();
+    walk(&data.root, &mut map);
+    let mut v: Vec<HotFunc> = map.into_values().collect();
+    v.sort_by(|a, b| b.self_count.cmp(&a.self_count));
+    v
+}
+
+fn walk(node: &ProfileNode, map: &mut HashMap<String, HotFunc>) {
+    if node.id != "(root)" {
+        let e = map.entry(node.id.clone()).or_insert_with(|| HotFunc {
+            name: node.name.clone(),
+            id: node.id.clone(),
+            self_count: 0,
+            total_count: 0,
+        });
+        e.self_count += node.self_count;
+        e.total_count += node.count;
     }
-    let mut items: Vec<HotItem> = by_name
-        .into_iter()
-        .map(|(name, (dur, calls))| HotItem {
-            name,
-            total_ms: dur * 1000.0,
-            calls,
-        })
-        .collect();
-    items.sort_by(|a, b| b.total_ms.partial_cmp(&a.total_ms).unwrap_or(std::cmp::Ordering::Equal));
-    items.truncate(30);
-    items
+    for c in &node.children {
+        walk(c, map);
+    }
 }
 
-fn collect_nodes(v: &serde_json::Value, acc: &mut std::collections::HashMap<String, (f64, u64)>) {
-    if let Some(obj) = v.as_object() {
-        let name = obj
-            .get("name")
-            .and_then(|x| x.as_str())
-            .or_else(|| obj.get("id").and_then(|x| x.as_str()))
-            .unwrap_or("?")
-            .to_string();
-        let dur = obj
-            .get("duration")
-            .and_then(|x| x.as_f64())
-            .or_else(|| obj.get("dur").and_then(|x| x.as_f64()))
-            .unwrap_or(0.0);
-        let calls = obj
-            .get("calls")
-            .and_then(|x| x.as_u64())
-            .or_else(|| obj.get("count").and_then(|x| x.as_u64()))
-            .unwrap_or(1);
-        let e = acc.entry(name).or_insert((0.0, 0));
-        e.0 += dur;
-        e.1 += calls;
-        if let Some(children) = obj.get("children").and_then(|c| c.as_array()) {
-            for c in children {
-                collect_nodes(c, acc);
-            }
-        }
-    } else if let Some(arr) = v.as_array() {
-        for c in arr {
-            collect_nodes(c, acc);
+#[component]
+fn HotRow(
+    name: String,
+    id: String,
+    self_count: u64,
+    total_count: u64,
+    total_samples: f64,
+    frame_ms: f64,
+) -> Element {
+    let self_pct = self_count as f64 / total_samples * 100.0;
+    let total_pct = total_count as f64 / total_samples * 100.0;
+    let self_ms_per_frame = self_pct / 100.0 * frame_ms;
+    let is_c = id.starts_with("[C]:");
+    let name_class = if is_c { "mono small accent" } else { "mono small" };
+
+    rsx! {
+        div { class: "tr", title: "{id}",
+            div { class: "td {name_class}", "{name}" }
+            div { class: "td mono small", "{self_pct:.1}%" }
+            div { class: "td mono small", "{self_ms_per_frame:.2}" }
+            div { class: "td mono small muted", "{total_pct:.1}%" }
+            div { class: "td mono small muted", "{self_count} / {total_count}" }
         }
     }
 }

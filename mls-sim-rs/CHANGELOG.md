@@ -1,70 +1,37 @@
 # Changelog
 
-## Unreleased
+## v0.6.0 (2026-05-26)
 
-### 视觉一致性升级
+### 新功能 — GUI 大爆炸式迁移到 Dioxus 0.7
 
-GUI 改用语义化色板 + 状态点 + chip + accent 视觉系统，整体一致性显著提升。
+GUI 整片由 **egui 即时模式**迁移到 **Dioxus 0.7 desktop**（基于 webview / RSX 声明式），主窗口标题由「MLS 云脚本模拟器」改为「MLS 云脚本环境模拟」。
 
-- 新建 `src/gui/palette.rs` 单一色源 + UI helper
-  - 背景 / 文本 / 描边 / 强调色 / 状态色全部语义命名（`SUCCESS / WARNING / DANGER / ACCENT / TEXT_DIM` 等）
-  - 全部硬编码 `Color32::from_rgb(...)` 字面量收敛到一处
-  - 提供 `status_dot / level_chip / chip / empty_state / accent_bar / underline` 等可复用 widget
-- **Tab 栏选中态** 加 accent 2px 底部下划线，扫一眼可识别
-- **Section 标题** 加左侧 3px accent 竖条，提升视觉层级
-- **房间侧栏卡片化** — 房间项首行 ● 状态点 + 房间名，次行小字 dim 灰显示状态/人数
-- **日志等级 chip** — `[ERR] [INF] [DBG]` 改为填充圆角 chip（背景色随级别变化），一眼可扫
-- **空状态升级** — "暂无房间"、"请选择房间查看状态" 等改为居中大灰图标 + 标题 + 操作提示（如 `↑↓ 切换 · N 新建 · / 命令`）
-- **删除确认模态** 加 ⚠ 图标 + 配色突出 warning/danger
-- **命令栏 popup 高亮** 改用 `ACCENT_BG`，配色与全局选择态一致
-- Profiler 配色（pct_bar / ms_color / 按钮 ▶ ■）接入 palette
-- 设置、出站事件等剩余 tab 全部走 palette，移除散落的颜色字面量
+- 全新组件树：`src/gui/components/` —— 控制台、设置、性能分析、关于页面（`about.rs` 新增）等子页面用 RSX 表达
+- 协程驱动：`src/gui/coroutines.rs` 接管原 egui 主循环的状态推进；样式集中到 `src/gui/style.css`
+- 旧版 egui 实现作为 **shelf 库**保留在 `src/gui_legacy/`（不在 `mod` 链中），其中 `parse.rs`（命令栏解析 + 补全候选 + 历史游标 + `event` 命令解析）+ 40 个单元测试通过 `#[path = "../gui_legacy/parse.rs"]` 单独编译复用——未来 Dioxus 接入 history popup / event hint 时不必重写
 
-### 新功能 — 键盘快捷键全覆盖
+> ⚠️ 前一版 `Unreleased` 描述的视觉一致性升级、键盘快捷键全覆盖、删除确认模态等 egui-era UI 功能**未跟随发布**，对应实现整体被 Dioxus 重写取代；要参考其设计意图请看 `gui_legacy/` 源码。
 
-GUI 现在按"人类操作习惯"全键盘可达，所有快捷键按 `F1` 查看速查表。
+### 新增配套客户端 DLL — `mls-dll`（独立 crate）
 
-**全局**
-- `Ctrl+1` … `Ctrl+6` 切到对应标签页（标签栏会显示数字提示，如 `房间 (1)`）
-- `Ctrl+Tab` / `Ctrl+Shift+Tab` 循环切换标签页
-- `/` 或 `Ctrl+L` 聚焦底部命令栏（`/` 仅在无输入框聚焦时触发，避免抢键）
-- `F1` 显示/隐藏键盘快捷键速查表
-- `Esc` 优先级降级：关闭弹窗 → 清空命令栏 → 失焦
+仓库新增 `mls-dll/` —— 32-bit Windows cdylib，作为 KKYDWE 插件挂进 war3 / 编辑器，把仙途等真业务客户端与 mls-sim 服务端打通。
 
-**命令栏**
-- `↑` / `↓` 回溯/前进命令历史（最近 100 条，连续去重，按 Enter 后游标重置）
-- `Tab` / `Shift+Tab` 循环候选补全：
-  - 命令名前缀匹配
-  - `select/stop/destroy/restart/join/leave/exit/event` 第 2 位补全房间 ID
-  - `join/leave/exit` 第 3 位补全玩家槽位
-  - `event` 第 3 位补全 `*` + 玩家槽位，第 4 位补全最近用过的事件名
-- `Enter` 执行命令，焦点保留在输入框（连发不丢焦）
-- 命令栏 popup 高亮当前选中候选
+- **pipe 层**：纯 Rust 复刻老 C++ `mls/pipe_client.cpp` + `codec.cpp`，OVERLAPPED I/O，3 秒心跳 + 退避重连；DllMain 直接通过 sentinel 文件 / 环境变量触发，无需额外 host 进程
+- **jass 桥（本次主线工作）**：通过 `LoadLibraryA + GetProcAddress` 解析 `yd_jass_api.dll` + `ydbase.dll` 的 cdecl mangled 符号，调用 sanctioned 路径——彻底告别老 C++ inline asm + `GetModuleHandleA("jass.dll")` 那套
+  - `async_hook("RequestExtraBooleanData", ...)`：拦截 `dataType==1009`（玩家→云脚本上行），合法 c2s 进 send queue；其他 dataType 透传原 native；超长 ename(>32B) / evalue(>900B) 直接 drop + WRN（**复刻平台真实限制，不做分块**）
+  - 注册 7 个 JASS native：`MlsNextEvent`（pop 一条 s2c 事件返 JSON）、`MsSendMlEvent`（lua-level c2s）、`MsGetRoom{StartTs,LoadedTs,GameTime,PlayerCount,ModeId}`（atomic 缓存的房间元信息）
+  - **路径 A 设计**：DLL 不持有 jass code handle，`RegisterEvent` / `UnregisterEvent` 完全留给 lua glue 实现 —— 因为老 C++ `mls_module.cpp` 走 DzSync 而非 code-handle 派发，没有可工作蓝本，硬上反而要 trigger + globals + ExecuteFunc 一堆复杂度
+- `docs/yd_jass_api-abi.md`：实证 ABI 调研（mangled 名、calling convention、AddJApi 反汇编片段）
+- `docs/mls-bridge-glue.lua`：war3 客户端 lua glue 参考（`RegisterEvent` 注册表 + 50ms pump + `centertimer` / jass timer 两套接法）
+- `docs/jass-bridge-e2e.md`：5 跳端到端验证步骤 + 排查矩阵
 
-**房间标签**
-- `↑` / `↓` 在房间列表中切换选中（环绕；自动滚动到可见区域）
-- `N` 切换"新建房间"表单
-- `Delete` 请求删除当前选中房间（弹二次确认）
-- "添加玩家" / "发送事件" 表单按 `Enter` 即可提交
-
-**控制台标签**
-- `Ctrl+F` 聚焦搜索框
-- `Ctrl+K` 清空日志
-- 搜索框聚焦时按 `Esc` 清空内容
-
-### 改进
-- 顶栏右侧新增 `/ 命令 · F1 帮助` 常驻提示
-- 删除房间从直接执行改为"二次确认模态" — 防止误触造成不可恢复操作
-- 命令栏 popup 在命令名位置显示完整用法（含参数形态），帮助用户发现参数语法
-
-### BREAKING CHANGES
-- **`event` 命令语法变更**：旧 `event <房间> <事件名> [数据] [玩家]` 因末位推断 player_index 在数字 `evalue` 上有歧义 bug（如 `event r1 score 0 123` 会把 `123` 误吞为 player_index）。
-  - 新语法：`event <房间> <事件名> <玩家|*> [数据...]`
-  - `<玩家>` 强制为第 3 位，`*` 或 `-1` 或 `全部` 表示广播；数据从第 4 位起空格拼接。
-  - 旧脚本/操作记忆需要调整位置。GUI 内的「发送事件」表单不受影响（始终用结构化字段）。
+### 修复
+- `mls-dll` 与 `ydbase` 交互全部包 `std::panic::catch_unwind` —— jass 调用栈穿透 Rust panic = war3 直接崩。`Cargo.toml` 释放配置由 `panic = "abort"` 改为 `panic = "unwind"` 让兜底真生效
+- `hook_reb::install` / `natives::register_all` / `Initialize` 全部加 idempotent 守卫 —— KKYDWE 编辑器侧 + war3 侧可能各调一次 `Initialize()`，没守卫会把自己 hook 自己导致 dt!=1009 路径栈溢出
 
 ### 内部
-- 命令解析逻辑（`split_command_args` / 补全候选 / 历史游标 / `event` 解析）抽到独立 `src/gui/parse.rs`，新增 40 个单元测试覆盖。
+- `src/gui/cmd.rs` 清理：删除空 re-export `CommandHistory` / `COMMAND_HINTS`（新 Dioxus GUI 还没接入），给 `mod inner` 加 `#[allow(dead_code)]` 一次性盖掉 6 条 `gui_legacy/parse.rs` 的 dead_code 警告 —— shelf 库有意保留，不是无用
+- 仓库根新增 `tools/pipe_test.py` —— 不依赖 war3 的 named-pipe 直连测试脚本，方便快速验证 mls-sim 的 pipe 服务端
 
 ## v0.5.3 (2026-05-26)
 

@@ -8,7 +8,8 @@ use tokio::sync::broadcast;
 use crate::room::{LogEntry, OutEvent, RoomManager};
 
 use super::state::{
-    EVENTS, LOGS, MAX_EVENTS, MAX_LOGS, PROFILER_ROOM, PROFILE_SNAPSHOT, ProfileSnapshot,
+    EVENTS, LOGS, LOG_ROOM_FILTER, MAX_EVENTS, MAX_LOGS, PROFILER_ROOM, PROFILE_SNAPSHOT,
+    ProfileSnapshot, SELECTED_ROOM, STATE_ROOM,
 };
 
 /// 100ms 周期：拉房间 broadcast 到全局 Signal。每 200ms 拍一次 profiler 快照。
@@ -79,7 +80,23 @@ fn sync_subscriptions(
         evt_rxs.remove(id);
     }
 
-    *subscribed = current;
+    *subscribed = current.clone();
+
+    // 默认选中：发现房间时，把所有"还没选中"的 selectors 自动指向第一个房间
+    if let Some(first) = current.iter().min().cloned() {
+        if SELECTED_ROOM.peek().is_none() {
+            *SELECTED_ROOM.write() = Some(first.clone());
+        }
+        if LOG_ROOM_FILTER.peek().is_empty() {
+            *LOG_ROOM_FILTER.write() = first.clone();
+        }
+        if STATE_ROOM.peek().is_none() {
+            *STATE_ROOM.write() = Some(first.clone());
+        }
+        if PROFILER_ROOM.peek().is_none() {
+            *PROFILER_ROOM.write() = Some(first);
+        }
+    }
 }
 
 fn drain(

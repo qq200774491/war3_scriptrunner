@@ -12,6 +12,7 @@ use dioxus::prelude::*;
 use crate::config::AppConfig;
 use crate::room::RoomManager;
 
+use components::about::About;
 use components::command_bar::CommandBar;
 use components::console::Console;
 use components::events::Events;
@@ -43,12 +44,14 @@ pub fn launch_app(
         config_path,
     };
     let title = format!("MLS 云脚本环境模拟 v{}", env!("CARGO_PKG_VERSION"));
-    let cfg = DesktopConfig::new().with_window(
-        WindowBuilder::new()
-            .with_title(title)
-            .with_inner_size(LogicalSize::new(1200.0, 800.0))
-            .with_min_inner_size(LogicalSize::new(800.0, 600.0)),
-    );
+    let cfg = DesktopConfig::new()
+        .with_menu(None)
+        .with_window(
+            WindowBuilder::new()
+                .with_title(title)
+                .with_inner_size(LogicalSize::new(1200.0, 800.0))
+                .with_min_inner_size(LogicalSize::new(800.0, 600.0)),
+        );
     LaunchBuilder::desktop()
         .with_cfg(cfg)
         .with_context(ctx)
@@ -84,10 +87,10 @@ fn app() -> Element {
             return;
         }
         if mods.ctrl() {
-            // Ctrl+1..6 切 Tab
+            // Ctrl+1..7 切 Tab
             if let Key::Character(c) = &key {
                 if let Some(n) = c.chars().next().and_then(|c| c.to_digit(10)) {
-                    if (1..=6).contains(&n) {
+                    if (1..=7).contains(&n) {
                         if let Some(t) = Tab::from_idx((n - 1) as usize) {
                             *SELECTED_TAB.write() = t;
                             e.prevent_default();
@@ -112,6 +115,7 @@ fn app() -> Element {
                     Tab::State    => rsx! { StateView {} },
                     Tab::Profiler => rsx! { Profiler {} },
                     Tab::Settings => rsx! { Settings {} },
+                    Tab::About    => rsx! { About {} },
                 }
             }
             CommandBar {}

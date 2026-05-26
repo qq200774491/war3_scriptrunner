@@ -1,0 +1,36 @@
+[package]
+name = "mls-dll"
+version = "0.1.0"
+edition = "2021"
+description = "Rust replacement for the C++ MLS pipe client DLL (x86 Windows)"
+publish = false
+
+[lib]
+name = "mls_sim"
+crate-type = ["cdylib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+# 用 unwind 让 std::panic::catch_unwind 真的能拦 panic —— 不让 Rust panic 穿过
+# jass / C ABI 边界把整个 war3 进程拖崩。所有 FFI 入口都包了 catch_unwind。
+panic = "unwind"
+strip = true

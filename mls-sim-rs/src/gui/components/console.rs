@@ -19,7 +19,8 @@ pub fn Console() -> Element {
         v
     };
 
-    // 应用过滤；末尾保留最近一段（避免一帧渲染 10k DOM 节点；后续打磨补虚拟滚动）
+    // 末尾保留最近 1500 条（避免一帧渲染 10k DOM；虚拟滚动留打磨期）
+    // .rev().take(1500).rev() 链取末尾且保持时间正序（旧→新，从上到下）
     let rows: Vec<_> = logs
         .iter()
         .filter(|e| level.is_empty() || e.level.eq_ignore_ascii_case(&level))
@@ -27,8 +28,20 @@ pub fn Console() -> Element {
         .filter(|e| search.is_empty() || e.message.contains(&search))
         .rev()
         .take(1500)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
         .collect();
     let total_visible = rows.len();
+    // auto-scroll：LOGS 变化时（订阅 .len() 触发追踪）滚到底
+    use_effect(move || {
+        let _len = LOGS.read().len();
+        if AUTO_SCROLL() {
+            let _ = dioxus::document::eval(
+                "var el = document.querySelector('.log-list'); if (el) el.scrollTop = el.scrollHeight;",
+            );
+        }
+    });
 
     rsx! {
         div { class: "console",
@@ -76,8 +89,8 @@ pub fn Console() -> Element {
                 span { class: "muted small", "{total_visible} / {logs.len()}" }
             }
             div {
-                class: if auto { "log-list auto-scroll" } else { "log-list" },
-                for entry in rows.iter().rev() {
+                class: "log-list",
+                for entry in rows.iter() {
                     LogRow { ts: entry.timestamp, level: entry.level.clone(),
                         source: entry.source.clone(), room: entry.room_id.clone(),
                         player: entry.player_index, message: entry.message.clone() }

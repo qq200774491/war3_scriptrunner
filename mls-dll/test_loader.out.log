@@ -1,0 +1,3 @@
+[harness] LoadLibraryA D:\war3Project\KKYDWE\plugin\mls-sim.dll
+[harness] loaded, handle=1712390144. sleeping 16s while DLL runs auto_test...
+[harness] done, exiting (worker thread dies with process)

@@ -5,3 +5,10 @@ mls-sim-rs/target
 .cursor/
 .codegraph/
 .spike-dioxus/
+*.png
+
+# runtime artifacts —— mls-sim 启动时重定向的 stdout/stderr，per-run 内容，
+# 跟代码版本无关。mls-dll/test_loader.{out,err}.log 同理但作为本期 pipe 验证
+# 的参考留档没删（小文件、引用进了 docs）。
+mls-sim-stdout.log
+mls-sim-stdout.log.err
