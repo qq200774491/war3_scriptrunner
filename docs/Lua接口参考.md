@@ -77,6 +77,21 @@ local err = MsSendMlEvent(player_index, "asset_update", json.encode({gold = 100}
 
 事件数据限制：最大 900 字节。
 
+> **War3 帧同步路由约定（v0.6+）**：当业务通过 `mls-sim.dll` 接入 war3 时，
+> `MsSendMlEvent` 的 `player_index` **必须**是 host pi（约定 = 0）。
+>
+> 原因：mls.exe 把 s2c 帧只投递给 host dll 一条 pipe；host dll 在 war3 主线程
+> 调 `DzSyncData("mls", json)`，由帧同步层在同一帧广播给所有客户端的业务 lua
+> （`DzTriggerRegisterSyncEvent` 接收）。这是 lockstep 的唯一安全做法——让
+> mls.exe 走 pipe fanout 会让不同客户端在不同帧收到同一条 s2c，触发 desync。
+>
+> 负数广播（`player_index < 0`）在 mls-sim 内部仍是合法的（pipe 层会 fanout
+> 到所有连接），但 host dll 这边只会调一次 DzSyncData——所以**业务层等效，但
+> 走帧同步路径更省 pipe 带宽**。`event_targets_player` 等内部路由不会因此修改，
+> 这是约定而非源码强制。
+
+业务接收侧样例见 `docs/examples/dzsync-receiver.lua`。
+
 ---
 
 ## 内置系统事件

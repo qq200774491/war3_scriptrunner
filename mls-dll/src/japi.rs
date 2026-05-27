@@ -13,7 +13,7 @@
 
 #![allow(non_snake_case)]
 
-use std::os::raw::c_char;
+use std::os::raw::{c_char, c_void};
 use std::sync::OnceLock;
 
 use windows_sys::Win32::Foundation::HMODULE;
@@ -49,12 +49,21 @@ pub type AsyncHook = unsafe extern "C" fn(
 pub type CreateString = unsafe extern "C" fn(*const c_char) -> u32;
 pub type FromString   = unsafe extern "C" fn(u32) -> *const c_char;
 
+/// `?japi_func@jass@warcraft3@base@@YAPBVfunc_value@123@PBD@Z` — name → func_value*。
+/// 我们只用来探活（非空即存在），不读 C++ 类内部字段。
+pub type JapiFunc = unsafe extern "C" fn(*const c_char) -> *const c_void;
+
 pub struct Japi {
     pub japi_add:      JapiAdd,
     pub japi_hook:     JapiHook,
     pub async_hook:    AsyncHook,
     pub create_string: CreateString,
     pub from_string:   FromString,
+    pub japi_func:     JapiFunc,
+    /// `?call@jass@warcraft3@base@@YAIPBDZZ` —— cdecl varargs，签名
+    /// `unsafe extern "C" fn(*const c_char, ...) -> u32`。
+    /// 因 Rust 稳定版不能 *定义* varargs fn，存原始地址，调用点 transmute 到具体 arity。
+    pub call_raw:      usize,
 }
 
 static JAPI: OnceLock<Japi> = OnceLock::new();
@@ -70,6 +79,8 @@ const SYM_JAPI_HOOK:     &[u8] = b"?japi_hook@jass@warcraft3@base@@YA_NPBDPAII@Z
 const SYM_ASYNC_HOOK:    &[u8] = b"?async_hook@jass@warcraft3@base@@YA_NPBDPAII@Z\0";
 const SYM_CREATE_STRING: &[u8] = b"?create_string@jass@warcraft3@base@@YAIPBD@Z\0";
 const SYM_FROM_STRING:   &[u8] = b"?from_string@jass@warcraft3@base@@YAPBDI@Z\0";
+const SYM_JAPI_FUNC:     &[u8] = b"?japi_func@jass@warcraft3@base@@YAPBVfunc_value@123@PBD@Z\0";
+const SYM_CALL:          &[u8] = b"?call@jass@warcraft3@base@@YAIPBDZZ\0";
 
 pub fn init() -> bool {
     if JAPI.get().is_some() {
@@ -78,7 +89,7 @@ pub fn init() -> bool {
     match try_init() {
         Some(japi) => {
             let _ = JAPI.set(japi);
-            log_inf("japi: yd_jass_api.dll + ydbase.dll loaded, 4 symbols resolved");
+            log_inf("japi: yd_jass_api.dll + ydbase.dll loaded, 7 symbols resolved");
             true
         }
         None => false,
@@ -114,6 +125,8 @@ fn try_init() -> Option<Japi> {
     let p_async_hook    = resolve(h_ydbase, SYM_ASYNC_HOOK,    "async_hook")?;
     let p_create_string = resolve(h_ydbase, SYM_CREATE_STRING, "create_string")?;
     let p_from_string   = resolve(h_ydbase, SYM_FROM_STRING,   "from_string")?;
+    let p_japi_func     = resolve(h_ydbase, SYM_JAPI_FUNC,     "japi_func")?;
+    let p_call          = resolve(h_ydbase, SYM_CALL,          "call")?;
 
     Some(Japi {
         japi_add:      unsafe { std::mem::transmute::<usize, JapiAdd>(p_japi_add) },
@@ -121,6 +134,8 @@ fn try_init() -> Option<Japi> {
         async_hook:    unsafe { std::mem::transmute::<usize, AsyncHook>(p_async_hook) },
         create_string: unsafe { std::mem::transmute::<usize, CreateString>(p_create_string) },
         from_string:   unsafe { std::mem::transmute::<usize, FromString>(p_from_string) },
+        japi_func:     unsafe { std::mem::transmute::<usize, JapiFunc>(p_japi_func) },
+        call_raw:      p_call,
     })
 }
 
@@ -191,4 +206,66 @@ pub fn create_jstring(s: &str) -> u32 {
     let Some(japi) = JAPI.get() else { return 0; };
     let Ok(c) = std::ffi::CString::new(s) else { return 0; };
     unsafe { (japi.create_string)(c.as_ptr()) }
+}
+
+/// 探活：jass 函数表里是否注册了指定 native（japi_function / jass_function /
+/// ai_function 任一）。`japi_func` 只查 `japi_function` 表，所以对纯 jass-native
+/// （比如 `DzSyncData` 通过 `AddJApi` 注册）刚好命中。
+pub fn japi_func_exists(name: &str) -> bool {
+    let Some(japi) = JAPI.get() else { return false; };
+    let Ok(c) = std::ffi::CString::new(name) else { return false; };
+    let p = unsafe { (japi.japi_func)(c.as_ptr()) };
+    !p.is_null()
+}
+
+/// 通用 `call("native_name", ...)` 包装，把 ydbase 的 cdecl varargs 入口
+/// 按 arity transmute 到具体签名后调用。varargs 在 cdecl 下按栈传递，
+/// 调用方按需要的参数个数 transmute 是合法的（C 互操作语义保证）。
+///
+/// 用例（DzSyncData：takes string,string returns nothing）：
+/// ```ignore
+/// let h_prefix  = japi::create_jstring("mls");
+/// let h_payload = japi::create_jstring(&json);
+/// japi::call_by_name("DzSyncData", &[h_prefix, h_payload]);
+/// ```
+///
+/// 返回值：jass return 是 `void` 时 ydbase 仍返 u32（值无意义，忽略即可）；
+/// jass return 是 int/handle/code 时返回原值；string 返回是 handle，读用 `read_jstring`。
+pub fn call_by_name(name: &str, args: &[u32]) -> u32 {
+    let Some(japi) = JAPI.get() else { return 0; };
+    let Ok(c) = std::ffi::CString::new(name) else { return 0; };
+    let raw = japi.call_raw;
+    unsafe {
+        match args.len() {
+            0 => {
+                let f: unsafe extern "C" fn(*const c_char) -> u32 =
+                    std::mem::transmute(raw);
+                f(c.as_ptr())
+            }
+            1 => {
+                let f: unsafe extern "C" fn(*const c_char, u32) -> u32 =
+                    std::mem::transmute(raw);
+                f(c.as_ptr(), args[0])
+            }
+            2 => {
+                let f: unsafe extern "C" fn(*const c_char, u32, u32) -> u32 =
+                    std::mem::transmute(raw);
+                f(c.as_ptr(), args[0], args[1])
+            }
+            3 => {
+                let f: unsafe extern "C" fn(*const c_char, u32, u32, u32) -> u32 =
+                    std::mem::transmute(raw);
+                f(c.as_ptr(), args[0], args[1], args[2])
+            }
+            4 => {
+                let f: unsafe extern "C" fn(*const c_char, u32, u32, u32, u32) -> u32 =
+                    std::mem::transmute(raw);
+                f(c.as_ptr(), args[0], args[1], args[2], args[3])
+            }
+            n => {
+                log_err(&format!("japi::call_by_name: unsupported arity {} for {:?}", n, name));
+                0
+            }
+        }
+    }
 }

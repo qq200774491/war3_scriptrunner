@@ -1,13 +1,14 @@
-//! S2C event 接收侧的 main-thread 派发面：
+//! S2C event 主线程派发队列：
 //!
-//!   pipe worker  ──push_recv──▶  RECV_QUEUE  ──pop_recv──▶  MlsNextEvent native (main thread, lua poll)
+//!   pipe worker  ──push_sync_out──▶  SYNC_OUT_QUEUE  ──drain_sync_out──▶  Native_MsPump (main thread)
 //!
-//! `push_recv` 在 pipe worker 线程被调，已经做过长度检查；overlength 在这里 drop+log
-//! （32/900B 平台真实限制，**不分块**）。
+//! v0.6 起 s2c 不再由 lua 拉取，而是 dll 主线程在 `MsPump` native 里 drain
+//! 后转调 `DzSyncData("mls", json)`，让 war3 帧同步层把消息**在同一帧**广播
+//! 到所有客户端的业务 lua（业务侧用 `DzTriggerRegisterSyncEvent` 接）。
 //!
-//! 房间元信息（start_ts、loaded_ts 等）用 `AtomicI32` 缓存，对应 native 读 atomic 即可。
-//! 目前不写入——TODO 在 push_recv 里识别特殊 ename（`_room_meta_*`）后填充。
-//! P0 验证不依赖这些值；先返回 0 是合规默认。
+//! `push_sync_out` 在 pipe worker 线程被调用，做 32B ename / 900B evalue 上限
+//! 校验（**保持与 mls.exe `validate_user_event` 上限一致**，便于业务源头不动）；
+//! pump 出队时再做一次 880B JSON 体二次校验，超限 drop + WRN，**不分块**。
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -19,14 +20,15 @@ use crate::protocol::EventPayload;
 const MAX_ENAME_BYTES: usize = 32;
 const MAX_EVALUE_BYTES: usize = 900;
 
-static RECV_QUEUE: OnceLock<Mutex<VecDeque<EventPayload>>> = OnceLock::new();
+static SYNC_OUT_QUEUE: OnceLock<Mutex<VecDeque<EventPayload>>> = OnceLock::new();
 
-fn recv_queue() -> &'static Mutex<VecDeque<EventPayload>> {
-    RECV_QUEUE.get_or_init(|| Mutex::new(VecDeque::new()))
+fn queue() -> &'static Mutex<VecDeque<EventPayload>> {
+    SYNC_OUT_QUEUE.get_or_init(|| Mutex::new(VecDeque::new()))
 }
 
-/// 入队 s2c event。任何线程可调（实际只在 pipe worker）。
-pub fn push_recv(p: EventPayload) {
+/// 入队一条 s2c event；任何线程可调（实际只在 pipe worker）。
+/// 超限直接 drop + log，不分块、不缓存。
+pub fn push_sync_out(p: EventPayload) {
     if p.ename.len() > MAX_ENAME_BYTES {
         log_wrn(&format!(
             "dispatch: s2c DROP ename {}B > {}B (prefix={:?})",
@@ -45,14 +47,18 @@ pub fn push_recv(p: EventPayload) {
         ));
         return;
     }
-    if let Ok(mut q) = recv_queue().lock() {
+    if let Ok(mut q) = queue().lock() {
         q.push_back(p);
     }
 }
 
-/// 出队一条 event；main thread（Native_MlsNextEvent）调。空队列返回 None。
-pub fn pop_recv() -> Option<EventPayload> {
-    recv_queue().lock().ok()?.pop_front()
+/// 主线程 pump 入口：一次性把队列搬走，批处理。空队列返回空 Vec。
+pub fn drain_sync_out() -> Vec<EventPayload> {
+    queue()
+        .lock()
+        .ok()
+        .map(|mut q| q.drain(..).collect())
+        .unwrap_or_default()
 }
 
 // ── 房间元信息缓存 ──────────────────────────────────────────────────

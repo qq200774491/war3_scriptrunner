@@ -39,7 +39,7 @@ pub extern "C" fn PluginName() -> *const c_char {
 /// DllMain 已经把 pipe worker 线程拉起来了，这里负责"jass 桥就绪"：
 ///   1. `japi::init()` —— 加载 yd_jass_api.dll + ydbase.dll，解析 cdecl 符号
 ///   2. `hook_reb::install()` —— hook RequestExtraBooleanData，c2s 入口（dt=1009）
-///   3. `natives::register_all()` —— 注册 7 个 native（MlsNextEvent + MsSendMlEvent + MsGetRoom*）
+///   3. `natives::register_all()` —— 注册 7 个 native（MsPump + MsSendMlEvent + MsGetRoom*）
 ///
 /// 整段必须包 `catch_unwind`——jass 调用栈不能让 Rust panic 穿透。
 /// 不能放 DllMain 里做：DllMain 在 LoadLibrary 时触发，jass VM 尚未就绪。

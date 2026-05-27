@@ -4,18 +4,26 @@
 //! jass 调用栈 = war3 直接崩。
 //!
 //! 当前注册的 7 个 native：
-//!   `MlsNextEvent()           : string`  —— 从 RECV_QUEUE 出队一条 s2c event，JSON 序列化返回；空 → ""
-//!   `MsSendMlEvent(pi,en,ev)  : boolean` —— 业务方便的 c2s 入口（=RequestExtraBooleanData(1009,…) 的等价封装）
-//!   `MsGetRoomStartTs()       : integer` —— 房间开始时间戳（atomic 缓存）
+//!   `MsPump()                 : integer` —— **主线程**入口；drain SYNC_OUT_QUEUE 并
+//!                                          对每条 event 调 `DzSyncData("mls", json)`，
+//!                                          由 war3 帧同步层广播到所有客户端的业务 lua；
+//!                                          返回本次成功发出的条数（drop 不计）
+//!   `MsSendMlEvent(pi,en,ev)  : boolean` —— c2s 上行的便捷入口（=RequestExtraBooleanData(1009,…)）
+//!   `MsGetRoomStartTs()       : integer` —— 房间元信息原子缓存
 //!   `MsGetRoomLoadedTs()      : integer`
 //!   `MsGetRoomGameTime()      : integer`
 //!   `MsGetRoomPlayerCount()   : integer`
 //!   `MsGetRoomModeId()        : integer`
 //!
-//! `RegisterEvent`/`UnregisterEvent` **不在这里注册**——按 plan 由 lua glue 实现
-//! （DLL 完全不碰 jass code handle），见 `D:\war3Project\KKYDWE\plugin\mls-sim.lua`。
+//! 业务接收：在 war3 业务 lua 里
+//!   `DzTriggerRegisterSyncEvent(trig, "mls", false)` + `DzGetTriggerSyncData()` 解 JSON。
+//!
+//! v0.6 之前的 `MlsNextEvent`（lua 拉队列）已删除——帧同步环境下 polling 会 desync。
 
 #![allow(non_snake_case)]
+
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::dispatch;
 use crate::japi;
@@ -25,17 +33,80 @@ use crate::protocol::{EventPayload, Frame};
 
 const MAX_ENAME_BYTES: usize = 32;
 const MAX_EVALUE_BYTES: usize = 900;
+/// `DzSyncData` 在 KKYDWE 的 sync payload 单帧硬上限 = 1024B（含框架元字段）。
+/// JSON 体 ≤880B 给框架字节留 144B 余量。**超限 drop + WRN，不分块**。
+const MAX_SYNC_JSON_BYTES: usize = 880;
+
+const DZSYNC_PREFIX: &str = "mls";
+
+// ── DzSyncData 探活（一次性）─────────────────────────────────────────────
+
+static DZSYNC_AVAILABLE: OnceLock<bool> = OnceLock::new();
+static DZSYNC_ERR_LOGGED: AtomicBool = AtomicBool::new(false);
+
+fn ensure_dzsync_available() -> bool {
+    *DZSYNC_AVAILABLE.get_or_init(|| {
+        let ok = japi::japi_func_exists("DzSyncData");
+        if !ok {
+            log_err(
+                "natives: DzSyncData not found in jass japi_function table; \
+                 MsPump will abort on every tick until restart",
+            );
+        } else {
+            log_inf("natives: DzSyncData probed OK");
+        }
+        ok
+    })
+}
 
 // ── native impls (cdecl, all args u32 per jass ABI) ─────────────────────
 
-unsafe extern "C" fn Native_MlsNextEvent() -> u32 {
+unsafe extern "C" fn Native_MsPump() -> u32 {
     catch_or_zero(|| {
-        let p = match dispatch::pop_recv() {
-            Some(p) => p,
-            None => return japi::create_jstring(""),
-        };
-        let json = build_event_json(&p);
-        japi::create_jstring(&json)
+        if !ensure_dzsync_available() {
+            // 已在探活时打 ERR，这里只在第一次 abort 时再补一句 pump 侧上下文；
+            // 后续每 50ms 进来都静默，避免刷屏。
+            if !DZSYNC_ERR_LOGGED.swap(true, Ordering::AcqRel) {
+                log_err("MsPump: aborting — DzSyncData unavailable (jass bridge not ready?)");
+            }
+            return 0;
+        }
+
+        let items = dispatch::drain_sync_out();
+        if items.is_empty() {
+            return 0;
+        }
+        let mut sent: u32 = 0;
+        let mut dropped: u32 = 0;
+        for p in items {
+            let json = build_event_json(&p);
+            if json.len() > MAX_SYNC_JSON_BYTES {
+                log_wrn(&format!(
+                    "MsPump: DROP json {}B > {}B ename={:?}",
+                    json.len(),
+                    MAX_SYNC_JSON_BYTES,
+                    p.ename
+                ));
+                dropped += 1;
+                continue;
+            }
+            let h_prefix = japi::create_jstring(DZSYNC_PREFIX);
+            let h_payload = japi::create_jstring(&json);
+            if h_prefix == 0 || h_payload == 0 {
+                log_err(&format!(
+                    "MsPump: create_jstring returned 0 (prefix={} payload={}); skipping ename={:?}",
+                    h_prefix, h_payload, p.ename
+                ));
+                dropped += 1;
+                continue;
+            }
+            let _ = japi::call_by_name("DzSyncData", &[h_prefix, h_payload]);
+            sent += 1;
+        }
+        if sent > 0 || dropped > 0 {
+            log_inf(&format!("MsPump: sent {} drop {}", sent, dropped));
+        }
+        sent
     })
 }
 
@@ -113,7 +184,6 @@ fn build_event_json(p: &EventPayload) -> String {
 
 // ── registration ────────────────────────────────────────────────────────
 
-use std::sync::atomic::{AtomicBool, Ordering};
 static REGISTERED: AtomicBool = AtomicBool::new(false);
 
 pub fn register_all() -> bool {
@@ -123,7 +193,7 @@ pub fn register_all() -> bool {
     }
 
     let entries: &[(&str, &str, *const ())] = &[
-        ("MlsNextEvent",         "()S",     Native_MlsNextEvent         as *const ()),
+        ("MsPump",               "()I",     Native_MsPump               as *const ()),
         ("MsSendMlEvent",        "(ISS)B",  Native_MsSendMlEvent        as *const ()),
         ("MsGetRoomStartTs",     "()I",     Native_MsGetRoomStartTs     as *const ()),
         ("MsGetRoomLoadedTs",    "()I",     Native_MsGetRoomLoadedTs    as *const ()),

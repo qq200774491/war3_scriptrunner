@@ -386,8 +386,9 @@ fn parse_and_dispatch(accum: &mut Vec<u8>) -> bool {
                     p.player_index,
                     p.evalue.len()
                 ));
-                // 进 main-thread 出队队列；dispatch::push_recv 内部做 32/900 限长 drop+log
-                crate::dispatch::push_recv(p);
+                // 进主线程 pump 队列；dispatch::push_sync_out 内部做 32/900 限长 drop+log
+                // （主线程 MsPump 取走后再做一次 880B JSON 体二次校验）
+                crate::dispatch::push_sync_out(p);
             }
             Ok(Frame::Error(e)) => {
                 log_wrn(&format!(
