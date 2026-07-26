@@ -1,6 +1,6 @@
-mls-sim-rs/target
+mls-sim-rs/target/
+mls-sim-rs/archives/
 参考/mls-master/war3_quicktest-master/
-mls-sim-rs/
 .claude/
 .vscode/
 .cursor/

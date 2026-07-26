@@ -5,3 +5,4 @@ pub mod player;
 pub mod room;
 pub mod simulation;
 pub mod storage;
+pub mod test_runner;

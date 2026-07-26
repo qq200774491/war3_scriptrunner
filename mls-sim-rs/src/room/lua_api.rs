@@ -1,7 +1,7 @@
 use super::{
-    now_secs, validate_user_event, EventHandler, RoomCommand, RoomSharedState, ERR_ITEM_NOT_ENOUGH,
-    ERR_ITEM_NOT_FOUND, ERR_OK, ERR_PLAYER_NOT_EXIST, ERR_SCRIPT_ARCHIVE_TOO_LONG, ERR_UNKNOWN,
-    MAX_LOG_LEN, MAX_SCRIPT_ARCHIVE_LEN,
+    now_secs, validate_user_event, EventHandler, RoomCommand, RoomSharedState, TimerThreadControl,
+    ERR_ITEM_NOT_ENOUGH, ERR_ITEM_NOT_FOUND, ERR_OK, ERR_PLAYER_NOT_EXIST,
+    ERR_SCRIPT_ARCHIVE_TOO_LONG, ERR_UNKNOWN, MAX_LOG_LEN, MAX_SCRIPT_ARCHIVE_LEN,
 };
 use mlua::prelude::*;
 use std::collections::HashMap;
@@ -18,6 +18,7 @@ where
     pub shared: Arc<RwLock<RoomSharedState>>,
     pub command_tx: mpsc::UnboundedSender<RoomCommand>,
     pub running: Arc<AtomicBool>,
+    pub timer_control: Arc<TimerThreadControl>,
     pub event_handlers: Arc<Mutex<HashMap<String, Vec<EventHandler>>>>,
     pub ticker_callbacks: Arc<Mutex<HashMap<i32, mlua::RegistryKey>>>,
     pub next_event_id: Arc<AtomicI32>,
@@ -43,6 +44,7 @@ where
         lua,
         ctx.command_tx.clone(),
         ctx.running.clone(),
+        ctx.timer_control.clone(),
         ctx.ticker_callbacks.clone(),
         ctx.next_ticker_id.clone(),
     )?;
@@ -120,6 +122,7 @@ fn install_timer_api(
     lua: &Lua,
     command_tx: mpsc::UnboundedSender<RoomCommand>,
     running: Arc<AtomicBool>,
+    timer_control: Arc<TimerThreadControl>,
     ticker_callbacks: Arc<Mutex<HashMap<i32, mlua::RegistryKey>>>,
     next_ticker_id: Arc<AtomicI32>,
 ) -> LuaResult<()> {
@@ -128,13 +131,16 @@ fn install_timer_api(
     let timer_after = lua.create_function({
         let cmd_tx = command_tx.clone();
         let running = running.clone();
+        let timer_control = timer_control.clone();
         move |lua_ctx: &Lua, (seconds, callback): (f64, LuaFunction)| {
             let key = lua_ctx.create_registry_value(callback)?;
             let cmd_tx = cmd_tx.clone();
             let running = running.clone();
+            let timer_control = timer_control.clone();
             std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs_f64(seconds.max(0.0)));
-                if running.load(Ordering::Relaxed) {
+                let elapsed = timer_control
+                    .wait_timeout(std::time::Duration::from_secs_f64(seconds.max(0.0)), None);
+                if elapsed && running.load(Ordering::Acquire) {
                     let _ = cmd_tx.send(RoomCommand::TimerCallback { func_key: key });
                 }
             });
@@ -148,6 +154,7 @@ fn install_timer_api(
         let running = running.clone();
         let ticker_cbs = ticker_callbacks.clone();
         let next_tid = next_ticker_id.clone();
+        let timer_control = timer_control.clone();
         move |lua_ctx: &Lua, (seconds, callback): (f64, LuaFunction)| {
             let ticker_id = next_tid.fetch_add(1, Ordering::Relaxed);
             let key = lua_ctx.create_registry_value(callback)?;
@@ -157,10 +164,14 @@ fn install_timer_api(
             let cancelled_clone = cancelled.clone();
             let cmd_tx = cmd_tx.clone();
             let running = running.clone();
+            let timer_control_for_thread = timer_control.clone();
 
             std::thread::spawn(move || loop {
-                std::thread::sleep(std::time::Duration::from_secs_f64(seconds.max(0.001)));
-                if cancelled_clone.load(Ordering::Relaxed) || !running.load(Ordering::Relaxed) {
+                let elapsed = timer_control_for_thread.wait_timeout(
+                    std::time::Duration::from_secs_f64(seconds.max(0.001)),
+                    Some(&cancelled_clone),
+                );
+                if !elapsed || !running.load(Ordering::Acquire) {
                     break;
                 }
                 let _ = cmd_tx.send(RoomCommand::TickerFire { ticker_id });
@@ -171,8 +182,10 @@ fn install_timer_api(
                 "Cancel",
                 lua_ctx.create_function({
                     let cancel_flag = cancelled.clone();
+                    let timer_control = timer_control.clone();
                     move |_, ()| {
-                        cancel_flag.store(true, Ordering::Relaxed);
+                        cancel_flag.store(true, Ordering::Release);
+                        timer_control.notify_waiters();
                         Ok(())
                     }
                 })?,

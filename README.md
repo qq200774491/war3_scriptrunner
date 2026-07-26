@@ -70,6 +70,17 @@ curl http://127.0.0.1:5000/api/health
 | `--script-dir` / `-s` | 无 | 云脚本目录，启动后自动建房 |
 | `--config` | `config.json` | 配置文件路径 |
 
+## 云脚本测试
+
+使用 `test` 子命令可以在不启动 GUI 和 HTTP Bridge 的情况下运行 Lua 测试：
+
+```powershell
+mls-sim.exe test "G:\Sourcetree\DaiHaoN\server\tests"
+mls-sim.exe test "G:\Sourcetree\DaiHaoN\server\tests" --reporter json
+```
+
+测试代码运行在独立 Lua VM 中，只通过原始事件向云脚本发送请求并读取 `MsSendMlEvent` 的返回内容。详细目录约定、Catch2 风格 DSL、SECTION 隔离语义及 reporter 说明见 [测试框架](docs/测试框架.md)。
+
 ## 配置文件
 
 ```json

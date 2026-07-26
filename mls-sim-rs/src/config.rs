@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -12,13 +12,16 @@ use crate::simulation::{RankingEntry, RoomSimulationData};
 #[derive(Parser, Debug)]
 #[command(name = "mls-sim", version, about = "MLS 云脚本本地模拟环境")]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<CliCommand>,
+
     #[arg(long, default_value = "127.0.0.1")]
     pub host: String,
 
     #[arg(long, short, default_value_t = 5000)]
     pub port: u16,
 
-    #[arg(long, short)]
+    #[arg(long, short, global = true)]
     pub script_dir: Option<String>,
 
     #[arg(long, default_value = "config.json")]
@@ -26,6 +29,91 @@ pub struct Cli {
 
     #[arg(long, help = "Hide the console window (Windows only)")]
     pub console_notwrte: bool,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum CliCommand {
+    /// Run cloud-script tests without starting the GUI or HTTP bridge.
+    Test(TestArgs),
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ReporterKind {
+    Console,
+    Compact,
+    Json,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct TestArgs {
+    /// Directory containing *_test.lua files.
+    pub test_dir: PathBuf,
+
+    /// Use a manifest other than TEST_DIR/mls-test.json.
+    #[arg(long)]
+    pub manifest: Option<PathBuf>,
+
+    /// Select a case name or stable ID with a case-sensitive * / ? glob (repeatable OR).
+    #[arg(long = "test")]
+    pub test_filters: Vec<String>,
+
+    /// Require a Catch2-style tag without brackets (repeatable AND).
+    #[arg(long = "tag")]
+    pub tags: Vec<String>,
+
+    /// List selected tests without creating cloud rooms.
+    #[arg(long)]
+    pub list_tests: bool,
+
+    /// Stop scheduling new test cases after the first failed case.
+    #[arg(long)]
+    pub fail_fast: bool,
+
+    /// Run up to this many test cases concurrently; fail-fast always runs serially.
+    #[arg(
+        long,
+        default_value_t = 1,
+        value_parser = parse_positive_usize
+    )]
+    pub jobs: usize,
+
+    /// Choose human-readable, one-line, or machine-readable output.
+    #[arg(long, value_enum, default_value_t = ReporterKind::Console)]
+    pub reporter: ReporterKind,
+
+    /// Write the complete report to a file instead of stdout.
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+
+    /// Include at most this many cloud log entries for each failed invocation.
+    #[arg(long, default_value_t = 20)]
+    pub log_tail: usize,
+
+    /// Override the test-file discovery timeout in seconds.
+    #[arg(long)]
+    pub discovery_timeout: Option<f64>,
+
+    /// Override the cloud main/bootstrap startup timeout in seconds.
+    #[arg(long)]
+    pub startup_timeout: Option<f64>,
+
+    /// Override each isolated test invocation timeout in seconds.
+    #[arg(long)]
+    pub case_timeout: Option<f64>,
+
+    /// Override waitEvent's default timeout in seconds.
+    #[arg(long)]
+    pub event_timeout: Option<f64>,
+}
+
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| "must be a positive integer".to_string())?;
+    if parsed == 0 {
+        return Err("must be at least 1".to_string());
+    }
+    Ok(parsed)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -474,5 +562,35 @@ fn apply_community_config(data: &mut PlayerCommunityData, config: &PlayerCommuni
 fn apply_guild_config(data: &mut PlayerGuildData, config: &PlayerGuildConfig) {
     if let Some(v) = config.level {
         data.level = v;
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_arguments_still_parse_without_a_subcommand() {
+        let cli =
+            Cli::try_parse_from(["mls-sim", "--script-dir", "cloud", "--port", "6000"]).unwrap();
+        assert!(cli.command.is_none());
+        assert_eq!(cli.script_dir.as_deref(), Some("cloud"));
+        assert_eq!(cli.port, 6000);
+    }
+
+    #[test]
+    fn test_subcommand_accepts_global_script_dir_after_test_directory() {
+        let cli = Cli::try_parse_from([
+            "mls-sim",
+            "test",
+            "tests",
+            "--script-dir",
+            "cloud",
+            "--reporter",
+            "json",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Some(CliCommand::Test(_))));
+        assert_eq!(cli.script_dir.as_deref(), Some("cloud"));
     }
 }

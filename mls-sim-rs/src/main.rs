@@ -1,12 +1,13 @@
 use clap::Parser;
 use eframe::egui;
-use mls_sim::config::{AppConfig, Cli};
+use mls_sim::config::{AppConfig, Cli, CliCommand};
 use mls_sim::room::RoomManager;
-use mls_sim::{bridge, config, gui, storage};
+use mls_sim::{bridge, config, gui, storage, test_runner};
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::sync::{Arc, RwLock};
 
-fn main() {
+fn main() -> ExitCode {
     #[cfg(windows)]
     {
         use std::os::windows::io::AsRawHandle;
@@ -21,13 +22,17 @@ fn main() {
         }
     }
 
+    let cli = Cli::parse();
+
+    if let Some(CliCommand::Test(args)) = &cli.command {
+        return ExitCode::from(test_runner::run(args, cli.script_dir.as_deref()));
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
-
-    let cli = Cli::parse();
 
     #[cfg(windows)]
     if cli.console_notwrte {
@@ -99,4 +104,6 @@ fn main() {
         native_options,
         Box::new(move |cc| Ok(Box::new(gui::GuiApp::new(cc, manager, config, config_path)))),
     );
+
+    ExitCode::SUCCESS
 }

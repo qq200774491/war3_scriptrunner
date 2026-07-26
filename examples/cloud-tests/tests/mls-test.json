@@ -1,0 +1,22 @@
+{
+  "script_dir": "../script",
+  "cloud_bootstrap": [
+    "fixtures/handlers.lua"
+  ],
+  "room": {
+    "mode_id": 0,
+    "players": [
+      {
+        "index": 0,
+        "name": "ExamplePlayer"
+      }
+    ]
+  },
+  "timeouts": {
+    "discovery": 2.0,
+    "startup": 3.0,
+    "case": 5.0,
+    "event": 1.0,
+    "shutdown": 1.0
+  }
+}
