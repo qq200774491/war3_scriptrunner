@@ -48,6 +48,25 @@ TEST_CASE('clearEvents removes preserved events', '[example][event]', function(c
     CHECK_EQ(#client:poll(), 0)
 end)
 
+TEST_CASE('server responses can be delayed', '[example][event][delay]', function(ctx)
+    local client = ctx:client(0)
+    ctx:setServerResponseDelay(0.05)
+
+    REQUIRE_EQ(client:send('echo_req', 'delayed'), 0)
+    CHECK(client:waitEvent({name = 'echo_res', timeout = 0.01}) == nil)
+    local response = client:waitEvent({name = 'echo_res'})
+    REQUIRE(response)
+    CHECK_EQ(response.data, 'mls-sim-example:delayed')
+end)
+
+TEST_CASE('client exposes a monotonic test clock', '[example][event][time]', function(ctx)
+    local client = ctx:client(0)
+    local started = client:now()
+
+    CHECK(client:waitEvent({name = 'never', timeout = 0.02}) == nil)
+    CHECK(client:now() > started)
+end)
+
 TEST_CASE('player lifecycle uses host commands', '[example][lifecycle]', function(ctx)
     local client = ctx:client(0)
 

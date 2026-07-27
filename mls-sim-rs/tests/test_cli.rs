@@ -79,6 +79,197 @@ fn jobs_zero_is_a_cli_usage_error() {
 }
 
 #[test]
+fn unicode_and_ascii_question_mark_filters_match_one_character() {
+    let project = TestProject::new(
+        r#"
+TEST_CASE('中文用例', '[filter]', function() CHECK(true) end)
+TEST_CASE('abc', '[filter]', function() CHECK(true) end)
+TEST_CASE('abbc', '[filter]', function() FAIL('should not match') end)
+"#,
+    );
+    let (output, report) = run_json(&[
+        "test",
+        project.tests.to_str().unwrap(),
+        "--reporter",
+        "json",
+        "--test",
+        "中?用例",
+        "--test",
+        "a?c",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(report["summary"]["test_cases"]["total"], 2);
+    assert_eq!(report["tests"][0]["name"], "中文用例");
+    assert_eq!(report["tests"][1]["name"], "abc");
+}
+
+#[test]
+fn invalid_output_path_is_rejected_before_cloud_startup() {
+    let project = TestProject::with_main(
+        "error('cloud startup must not run')\n",
+        "TEST_CASE('unused', function() FAIL('test must not run') end)\n",
+    );
+    let output = simulator()
+        .args([
+            "test",
+            project.tests.to_str().unwrap(),
+            "--reporter",
+            "json",
+            "--out",
+            project.tests.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("failed to prepare report output"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("cloud startup must not run"), "{stderr}");
+}
+
+#[test]
+fn valid_output_path_is_prepared_and_receives_the_report() {
+    let project = TestProject::new("TEST_CASE('written report', function() CHECK(true) end)\n");
+    let output_path = project.tests.join("reports").join("result.json");
+    let output = simulator()
+        .args([
+            "test",
+            project.tests.to_str().unwrap(),
+            "--reporter",
+            "json",
+            "--out",
+            output_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    let report: Value = serde_json::from_slice(&fs::read(output_path).unwrap()).unwrap();
+    assert_eq!(report["status"], "passed");
+    assert_eq!(report["summary"]["test_cases"]["passed"], 1);
+}
+
+#[test]
+fn script_directory_is_found_across_all_test_directory_ancestors() {
+    let root = tempfile::tempdir().unwrap();
+    let tests = root.path().join("one").join("two").join("tests");
+    fs::create_dir_all(&tests).unwrap();
+    fs::write(root.path().join("main.lua"), "-- ancestor cloud\n").unwrap();
+    fs::write(
+        tests.join("ancestor_test.lua"),
+        "TEST_CASE('ancestor main', function() CHECK(true) end)\n",
+    )
+    .unwrap();
+
+    let (output, report) = run_json(&["test", tests.to_str().unwrap(), "--reporter", "json"]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(report["status"], "passed");
+    assert_eq!(
+        Path::new(report["script_dir"].as_str().unwrap())
+            .canonicalize()
+            .unwrap(),
+        root.path().canonicalize().unwrap()
+    );
+}
+
+#[test]
+fn test_context_delays_all_server_responses_without_reordering_them() {
+    let project = TestProject::with_main(
+        r#"
+RegisterEvent('delayed_req', function(_, _, eventData, playerIndex)
+    MsSendMlEvent(playerIndex, 'delayed_res', eventData .. ':first')
+    MsSendMlEvent(playerIndex, 'delayed_res', eventData .. ':second')
+end)
+"#,
+        r#"
+TEST_CASE('server response delay', '[runner][delay]', function(ctx)
+    local client = ctx:client(0)
+    ctx:setServerResponseDelay(0.1)
+
+    REQUIRE_EQ(client:send('delayed_req', 'value'), 0)
+    CHECK(client:waitEvent({name = 'delayed_res', timeout = 0.03}) == nil)
+
+    local first = client:waitEvent({name = 'delayed_res', timeout = 0.3})
+    local second = client:waitEvent({name = 'delayed_res', timeout = 0.3})
+    REQUIRE(first)
+    REQUIRE(second)
+    CHECK_EQ(first.data, 'value:first')
+    CHECK_EQ(second.data, 'value:second')
+
+    CHECK_THROWS(function() ctx:setServerResponseDelay(-0.1) end)
+    CHECK_THROWS(function() ctx:setServerResponseDelay(math.huge) end)
+    CHECK_THROWS(function() ctx:setServerResponseDelay(0 / 0) end)
+end)
+"#,
+    );
+    let (output, report) = run_json(&[
+        "test",
+        project.tests.to_str().unwrap(),
+        "--reporter",
+        "json",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(report["status"], "passed");
+    assert_eq!(report["summary"]["test_cases"]["passed"], 1);
+    assert_eq!(report["summary"]["assertions"]["failed"], 0);
+}
+
+#[test]
+fn test_client_exposes_a_monotonic_clock() {
+    let project = TestProject::new(
+        r#"
+TEST_CASE('monotonic clock', '[runner][time]', function(ctx)
+    local client = ctx:client(0)
+    local started = client:now()
+    CHECK(started >= 0)
+    CHECK_EQ(client.eventTimeout, 0.1)
+    CHECK(client:waitEvent({name = 'never', timeout = 0.02}) == nil)
+    CHECK(client:now() > started)
+end)
+"#,
+    );
+    let (output, report) = run_json(&[
+        "test",
+        project.tests.to_str().unwrap(),
+        "--reporter",
+        "json",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(report["status"], "passed");
+    assert_eq!(report["summary"]["test_cases"]["passed"], 1);
+    assert_eq!(report["summary"]["assertions"]["failed"], 0);
+}
+
+#[test]
 fn parallel_cases_keep_discovery_order_and_isolated_cloud_state() {
     let project = TestProject::with_main(
         r#"
@@ -349,6 +540,66 @@ end)
     assert!(output.status.success());
     assert_eq!(report["summary"]["invocations"]["total"], 3);
     assert_eq!(report["summary"]["assertions"]["total"], 3);
+}
+
+#[test]
+fn section_leaf_paths_have_independent_cloud_globals_and_archives() {
+    let project = TestProject::with_main(
+        r#"
+local counter = 0
+
+RegisterEvent('section_isolation_req', function(_, _, eventData, playerIndex)
+    counter = counter + 1
+    local previous = MsGetCommonArchive(playerIndex, 'section_state')
+    local result = MsSetCommonArchive(playerIndex, 'section_state', eventData)
+    MsSendMlEvent(
+        playerIndex,
+        'section_isolation_res',
+        tostring(counter) .. ':' .. previous .. ':' .. tostring(result)
+    )
+end)
+"#,
+        r#"
+local function check_isolated_path(ctx, label)
+    local client = ctx:client(0)
+
+    REQUIRE_EQ(client:send('section_isolation_req', label), 0)
+    local first = client:waitEvent({name = 'section_isolation_res'})
+    REQUIRE(first)
+    CHECK_EQ(first.data, '1::0')
+
+    REQUIRE_EQ(client:send('section_isolation_req', label .. '-next'), 0)
+    local second = client:waitEvent({name = 'section_isolation_res'})
+    REQUIRE(second)
+    CHECK_EQ(second.data, '2:' .. label .. ':0')
+end
+
+TEST_CASE('section cloud and archive isolation', '[runner][section]', function(ctx)
+    SECTION('first leaf', function()
+        check_isolated_path(ctx, 'first')
+    end)
+    SECTION('second leaf', function()
+        check_isolated_path(ctx, 'second')
+    end)
+end)
+"#,
+    );
+    let (output, report) = run_json(&[
+        "test",
+        project.tests.to_str().unwrap(),
+        "--reporter",
+        "json",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(report["summary"]["test_cases"]["passed"], 1);
+    assert_eq!(report["summary"]["invocations"]["total"], 2);
+    assert_eq!(report["summary"]["invocations"]["passed"], 2);
+    assert_eq!(report["summary"]["assertions"]["failed"], 0);
 }
 
 #[test]

@@ -1,7 +1,8 @@
 use super::{
-    now_secs, validate_user_event, EventHandler, RoomCommand, RoomSharedState, TimerThreadControl,
-    ERR_ITEM_NOT_ENOUGH, ERR_ITEM_NOT_FOUND, ERR_OK, ERR_PLAYER_NOT_EXIST,
-    ERR_SCRIPT_ARCHIVE_TOO_LONG, ERR_UNKNOWN, MAX_LOG_LEN, MAX_SCRIPT_ARCHIVE_LEN,
+    now_secs, validate_user_event, EventHandler, RoomCommand, RoomSharedState,
+    ServerResponseDelivery, TimerThreadControl, ERR_ITEM_NOT_ENOUGH, ERR_ITEM_NOT_FOUND, ERR_OK,
+    ERR_PLAYER_NOT_EXIST, ERR_SCRIPT_ARCHIVE_TOO_LONG, ERR_UNKNOWN, MAX_LOG_LEN,
+    MAX_SCRIPT_ARCHIVE_LEN,
 };
 use mlua::prelude::*;
 use std::collections::HashMap;
@@ -26,6 +27,7 @@ where
     pub trans_id_counter: Arc<AtomicI32>,
     pub emit_log: LogFn,
     pub emit_out_event: OutFn,
+    pub server_response_delivery: Arc<Mutex<ServerResponseDelivery>>,
     pub archive_dir: String,
     pub script_dir: PathBuf,
 }
@@ -69,6 +71,7 @@ where
         ctx.command_tx.clone(),
         ctx.emit_log.clone(),
         ctx.emit_out_event.clone(),
+        ctx.server_response_delivery,
     )?;
     install_md5_api(lua)?;
     install_require(lua, ctx.script_dir)?;
@@ -880,6 +883,7 @@ fn install_control_api<LogFn, OutFn>(
     command_tx: mpsc::UnboundedSender<RoomCommand>,
     emit_log: LogFn,
     emit_out_event: OutFn,
+    server_response_delivery: Arc<Mutex<ServerResponseDelivery>>,
 ) -> LuaResult<()>
 where
     LogFn: Fn(&str, &str, String) + Clone + Send + 'static,
@@ -898,7 +902,13 @@ where
                 return Ok(ERR_PLAYER_NOT_EXIST);
             }
 
-            emit_out_event(idx, ename, evalue);
+            let immediate = server_response_delivery
+                .lock()
+                .unwrap()
+                .schedule(idx, ename, evalue);
+            if let Some((idx, ename, evalue)) = immediate {
+                emit_out_event(idx, ename, evalue);
+            }
             Ok(ERR_OK)
         })?,
     )?;

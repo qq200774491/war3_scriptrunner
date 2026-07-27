@@ -16,7 +16,12 @@
 ---@field reason? string
 
 ---@class MlsTestClient
+---@field eventTimeout number Effective default waitEvent timeout in seconds.
 local MlsTestClient = {}
+
+---Return monotonic seconds elapsed in the current test invocation.
+---@return number seconds
+function MlsTestClient:now() end
 
 ---@param eventName string
 ---@param eventData string
@@ -39,6 +44,11 @@ local MlsTestContext = {}
 ---@param playerIndex integer
 ---@return MlsTestClient
 function MlsTestContext:client(playerIndex) end
+
+---Set a non-blocking delay for every subsequent MsSendMlEvent response in this room.
+---Responses remain in their original send order. The default is 0.
+---@param seconds number Non-negative finite seconds.
+function MlsTestContext:setServerResponseDelay(seconds) end
 
 ---@param options MlsTestLifecycleOptions
 ---@return integer errnum

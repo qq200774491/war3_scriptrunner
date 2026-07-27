@@ -1,5 +1,9 @@
 use mlua::prelude::*;
 use serde_json::Value as Jv;
+use std::collections::HashSet;
+use std::ffi::c_void;
+
+const MAX_ENCODE_DEPTH: usize = 128;
 
 pub fn install_json_lib(lua: &Lua) -> LuaResult<()> {
     let json = lua.create_table()?;
@@ -11,7 +15,8 @@ pub fn install_json_lib(lua: &Lua) -> LuaResult<()> {
 
 fn json_encode(lua: &Lua, value: LuaValue) -> LuaResult<LuaValue> {
     let mut buf = Vec::new();
-    encode_value(&value, &mut buf);
+    let mut active_tables = HashSet::new();
+    encode_value(&value, &mut buf, &mut active_tables, 0)?;
     Ok(LuaValue::String(lua.create_string(&buf)?))
 }
 
@@ -23,7 +28,11 @@ fn json_decode(lua: &Lua, value: LuaValue) -> LuaResult<LuaValue> {
             Ok(s) => s.to_owned(),
             Err(e) => return Err(LuaError::RuntimeError(format!("json.decode: {e}"))),
         },
-        _ => return Err(LuaError::RuntimeError("json.decode expects a string".into())),
+        _ => {
+            return Err(LuaError::RuntimeError(
+                "json.decode expects a string".into(),
+            ))
+        }
     };
     let v: Jv = serde_json::from_str(&s)
         .map_err(|e| LuaError::RuntimeError(format!("json.decode: {e}")))?;
@@ -32,7 +41,12 @@ fn json_decode(lua: &Lua, value: LuaValue) -> LuaResult<LuaValue> {
 
 // ── encode: build JSON as raw bytes (matching cjson byte-pass-through) ──
 
-fn encode_value(v: &LuaValue, buf: &mut Vec<u8>) {
+fn encode_value(
+    v: &LuaValue,
+    buf: &mut Vec<u8>,
+    active_tables: &mut HashSet<*const c_void>,
+    depth: usize,
+) -> LuaResult<()> {
     match v {
         LuaValue::Nil => buf.extend_from_slice(b"null"),
         LuaValue::Boolean(b) => {
@@ -44,9 +58,10 @@ fn encode_value(v: &LuaValue, buf: &mut Vec<u8>) {
         }
         LuaValue::Number(n) => encode_number(*n, buf),
         LuaValue::String(s) => encode_lua_string(s, buf),
-        LuaValue::Table(t) => encode_table(t, buf),
+        LuaValue::Table(t) => encode_table(t, buf, active_tables, depth)?,
         _ => buf.extend_from_slice(b"null"),
     }
+    Ok(())
 }
 
 fn encode_number(n: f64, buf: &mut Vec<u8>) {
@@ -126,34 +141,58 @@ fn is_array_table(t: &LuaTable) -> bool {
     true
 }
 
-fn encode_table(t: &LuaTable, buf: &mut Vec<u8>) {
-    if is_array_table(t) {
-        buf.push(b'[');
-        let len = t.raw_len();
-        for i in 1..=len {
-            if i > 1 {
-                buf.push(b',');
-            }
-            let v: LuaValue = t.raw_get(i as i64).unwrap_or(LuaValue::Nil);
-            encode_value(&v, buf);
-        }
-        buf.push(b']');
-    } else {
-        buf.push(b'{');
-        let mut first = true;
-        for pair in t.pairs::<LuaValue, LuaValue>() {
-            if let Ok((k, v)) = pair {
-                if !first {
+fn encode_table(
+    t: &LuaTable,
+    buf: &mut Vec<u8>,
+    active_tables: &mut HashSet<*const c_void>,
+    depth: usize,
+) -> LuaResult<()> {
+    if depth >= MAX_ENCODE_DEPTH {
+        return Err(LuaError::RuntimeError(format!(
+            "json.encode: nesting depth exceeds {MAX_ENCODE_DEPTH}"
+        )));
+    }
+
+    let table_pointer = t.to_pointer();
+    if !active_tables.insert(table_pointer) {
+        return Err(LuaError::RuntimeError(
+            "json.encode: circular reference".into(),
+        ));
+    }
+
+    let result = (|| {
+        if is_array_table(t) {
+            buf.push(b'[');
+            let len = t.raw_len();
+            for i in 1..=len {
+                if i > 1 {
                     buf.push(b',');
                 }
-                first = false;
-                encode_key(&k, buf);
-                buf.push(b':');
-                encode_value(&v, buf);
+                let v: LuaValue = t.raw_get(i as i64).unwrap_or(LuaValue::Nil);
+                encode_value(&v, buf, active_tables, depth + 1)?;
             }
+            buf.push(b']');
+        } else {
+            buf.push(b'{');
+            let mut first = true;
+            for pair in t.pairs::<LuaValue, LuaValue>() {
+                if let Ok((k, v)) = pair {
+                    if !first {
+                        buf.push(b',');
+                    }
+                    first = false;
+                    encode_key(&k, buf);
+                    buf.push(b':');
+                    encode_value(&v, buf, active_tables, depth + 1)?;
+                }
+            }
+            buf.push(b'}');
         }
-        buf.push(b'}');
-    }
+        Ok(())
+    })();
+
+    active_tables.remove(&table_pointer);
+    result
 }
 
 fn encode_key(k: &LuaValue, buf: &mut Vec<u8>) {
@@ -210,4 +249,75 @@ fn json_to_lua(lua: &Lua, v: &Jv) -> LuaResult<LuaValue> {
             LuaValue::Table(t)
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn json_encode_rejects_circular_tables() {
+        let lua = Lua::new();
+        install_json_lib(&lua).unwrap();
+
+        let (success, message): (bool, String) = lua
+            .load(
+                r#"
+local value = {}
+value.self = value
+local ok, err = pcall(json.encode, value)
+return ok, tostring(err)
+"#,
+            )
+            .eval()
+            .unwrap();
+
+        assert!(!success);
+        assert!(message.contains("circular reference"), "{message}");
+    }
+
+    #[test]
+    fn json_encode_rejects_excessive_nesting() {
+        let lua = Lua::new();
+        install_json_lib(&lua).unwrap();
+
+        let (success, message): (bool, String) = lua
+            .load(
+                r#"
+local root = {}
+local current = root
+for _ = 1, 129 do
+    local child = {}
+    current.child = child
+    current = child
+end
+local ok, err = pcall(json.encode, root)
+return ok, tostring(err)
+"#,
+            )
+            .eval()
+            .unwrap();
+
+        assert!(!success);
+        assert!(message.contains("nesting depth"), "{message}");
+    }
+
+    #[test]
+    fn json_encode_allows_shared_non_circular_tables() {
+        let lua = Lua::new();
+        install_json_lib(&lua).unwrap();
+
+        let (first, second): (i64, i64) = lua
+            .load(
+                r#"
+local child = { value = 7 }
+local decoded = json.decode(json.encode({ first = child, second = child }))
+return decoded.first.value, decoded.second.value
+"#,
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!((first, second), (7, 7));
+    }
 }

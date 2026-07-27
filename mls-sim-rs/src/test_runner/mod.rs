@@ -215,8 +215,29 @@ struct ClientState {
     inboxes: HashMap<i32, VecDeque<OutEvent>>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct TestClock {
+    origin: Instant,
+}
+
+impl TestClock {
+    fn start() -> Self {
+        Self {
+            origin: Instant::now(),
+        }
+    }
+
+    fn now(self) -> f64 {
+        self.origin.elapsed().as_secs_f64()
+    }
+}
+
 pub fn run(args: &TestArgs, cli_script_dir: Option<&str>) -> u8 {
     let started = Instant::now();
+    if let Err(error) = prepare_report_output(args) {
+        eprintln!("mls-sim test: {error}");
+        return 2;
+    }
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         run_inner(args, cli_script_dir, started)
     }));
@@ -445,16 +466,14 @@ fn resolve_suite(args: &TestArgs, cli_script_dir: Option<&str>) -> RunnerResult<
         absolute_from_current(Path::new(value))
     } else if let Some(value) = &manifest.script_dir {
         manifest_dir.join(value)
-    } else if test_dir.join("main.lua").is_file() {
-        test_dir.clone()
-    } else if test_dir
-        .parent()
-        .is_some_and(|parent| parent.join("main.lua").is_file())
+    } else if let Some(ancestor) = test_dir
+        .ancestors()
+        .find(|ancestor| ancestor.join("main.lua").is_file())
     {
-        test_dir.parent().unwrap().to_path_buf()
+        ancestor.to_path_buf()
     } else {
         return Err(RunnerError(
-            "cloud script directory is not configured and no nearby main.lua was found".into(),
+            "cloud script directory is not configured and no main.lua was found in the test directory or its ancestors".into(),
         ));
     };
     let script_dir = canonical_directory(&script_candidate, "cloud script directory")?;
@@ -828,14 +847,14 @@ fn case_matches(case: &CaseMeta, filters: &[String], tags: &[String]) -> bool {
 }
 
 fn wildcard_match(pattern: &str, value: &str) -> bool {
-    let pattern = pattern.as_bytes();
-    let value = value.as_bytes();
+    let pattern = pattern.chars().collect::<Vec<_>>();
+    let value = value.chars().collect::<Vec<_>>();
     let (mut p, mut v, mut star, mut checkpoint) = (0usize, 0usize, None, 0usize);
     while v < value.len() {
-        if p < pattern.len() && (pattern[p] == b'?' || pattern[p] == value[v]) {
+        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == value[v]) {
             p += 1;
             v += 1;
-        } else if p < pattern.len() && pattern[p] == b'*' {
+        } else if p < pattern.len() && pattern[p] == '*' {
             star = Some(p);
             p += 1;
             checkpoint = v;
@@ -847,7 +866,7 @@ fn wildcard_match(pattern: &str, value: &str) -> bool {
             return false;
         }
     }
-    while p < pattern.len() && pattern[p] == b'*' {
+    while p < pattern.len() && pattern[p] == '*' {
         p += 1;
     }
     p == pattern.len()
@@ -1710,6 +1729,7 @@ fn create_test_context(
     let context = lua.create_table().map_err(lua_error)?;
     let cache = lua.create_table().map_err(lua_error)?;
     let cache_key = lua.create_registry_value(cache).map_err(lua_error)?;
+    let clock = TestClock::start();
 
     let client_manager = manager.clone();
     let client_room_id = room_id.clone();
@@ -1738,11 +1758,29 @@ fn create_test_context(
                     client_room_id.clone(),
                     client_shared.clone(),
                     player_index,
+                    clock,
                     deadline,
                     event_timeout,
                 )?;
                 cache.raw_set(player_index, client.clone())?;
                 Ok(client)
+            })
+            .map_err(lua_error)?,
+        )
+        .map_err(lua_error)?;
+
+    let delay_manager = manager.clone();
+    let delay_room_id = room_id.clone();
+    context
+        .set(
+            "setServerResponseDelay",
+            lua.create_function(move |_, (_self, seconds): (LuaTable, f64)| {
+                let manager = delay_manager.lock().unwrap();
+                let room = manager.get_room(&delay_room_id).ok_or_else(|| {
+                    mlua::Error::RuntimeError("cloud room no longer exists".into())
+                })?;
+                room.set_server_response_delay(seconds)
+                    .map_err(mlua::Error::RuntimeError)
             })
             .map_err(lua_error)?,
         )
@@ -1784,10 +1822,17 @@ fn create_client_table(
     room_id: String,
     client_state: Arc<Mutex<ClientState>>,
     player_index: i32,
+    clock: TestClock,
     deadline: Instant,
     event_timeout: Duration,
 ) -> LuaResult<LuaTable> {
     let client = lua.create_table()?;
+    client.set("eventTimeout", event_timeout.as_secs_f64())?;
+
+    client.set(
+        "now",
+        lua.create_function(move |_, _self: LuaTable| Ok(clock.now()))?,
+    )?;
 
     let send_manager = manager.clone();
     let send_room_id = room_id.clone();
@@ -2099,6 +2144,33 @@ fn write_report(args: &TestArgs, report: &SuiteReport) -> RunnerResult<()> {
     Ok(())
 }
 
+fn prepare_report_output(args: &TestArgs) -> RunnerResult<()> {
+    let Some(path) = &args.out else {
+        return Ok(());
+    };
+    let path = absolute_from_current(path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            RunnerError(format!(
+                "failed to create report directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+    }
+    fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .map_err(|error| {
+            RunnerError(format!(
+                "failed to prepare report output {}: {error}",
+                path.display()
+            ))
+        })?;
+    Ok(())
+}
+
 fn render_console(report: &SuiteReport, list_only: bool) -> String {
     let mut lines = Vec::new();
     if !report.errors.is_empty() {
@@ -2219,4 +2291,30 @@ fn render_compact(report: &SuiteReport, list_only: bool) -> String {
         report.summary.assertions.failed
     ));
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{wildcard_match, TestClock};
+    use std::time::Duration;
+
+    #[test]
+    fn wildcard_question_mark_matches_one_unicode_character() {
+        assert!(wildcard_match("a?c", "abc"));
+        assert!(!wildcard_match("a?c", "abbc"));
+        assert!(wildcard_match("中?用例", "中文用例"));
+        assert!(!wildcard_match("中??用例", "中文用例"));
+        assert!(wildcard_match("*文?例", "中文用例"));
+    }
+
+    #[test]
+    fn test_clock_advances_without_moving_backwards() {
+        let clock = TestClock::start();
+        let first = clock.now();
+        std::thread::sleep(Duration::from_millis(5));
+        let second = clock.now();
+
+        assert!(first >= 0.0);
+        assert!(second > first);
+    }
 }

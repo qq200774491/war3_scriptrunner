@@ -195,6 +195,72 @@ pub struct OutEvent {
     pub room_id: String,
 }
 
+#[derive(Debug)]
+struct PendingServerResponse {
+    ready_at: Instant,
+    player_index: i32,
+    ename: String,
+    evalue: String,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct ServerResponseDelivery {
+    delay: Duration,
+    pending: VecDeque<PendingServerResponse>,
+}
+
+impl ServerResponseDelivery {
+    fn set_delay(&mut self, delay: Duration) {
+        self.delay = delay;
+    }
+
+    pub(super) fn schedule(
+        &mut self,
+        player_index: i32,
+        ename: String,
+        evalue: String,
+    ) -> Option<(i32, String, String)> {
+        if self.delay.is_zero() && self.pending.is_empty() {
+            return Some((player_index, ename, evalue));
+        }
+
+        let now = Instant::now();
+        let delayed_until = now
+            .checked_add(self.delay)
+            .expect("validated server response delay overflowed Instant");
+        let ready_at = self
+            .pending
+            .back()
+            .map(|event| event.ready_at.max(delayed_until))
+            .unwrap_or(delayed_until);
+        self.pending.push_back(PendingServerResponse {
+            ready_at,
+            player_index,
+            ename,
+            evalue,
+        });
+        None
+    }
+
+    fn take_due(&mut self, now: Instant) -> Vec<PendingServerResponse> {
+        let mut due = Vec::new();
+        while self
+            .pending
+            .front()
+            .is_some_and(|event| event.ready_at <= now)
+        {
+            due.push(self.pending.pop_front().unwrap());
+        }
+        due
+    }
+
+    fn next_wait(&self, now: Instant) -> Option<Duration> {
+        self.pending
+            .front()
+            .map(|event| event.ready_at.saturating_duration_since(now))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct ProfileNode {
     pub id: String,
@@ -324,6 +390,7 @@ pub struct Room {
     pub join_handle: Option<std::thread::JoinHandle<()>>,
     pub execution_control: Option<Arc<RoomExecutionControl>>,
     timer_control: Arc<TimerThreadControl>,
+    server_response_delivery: Arc<Mutex<ServerResponseDelivery>>,
 }
 
 impl Drop for Room {
@@ -386,6 +453,22 @@ impl Room {
             return false;
         }
         receiver.recv_timeout(timeout).is_ok()
+    }
+
+    pub fn set_server_response_delay(&self, seconds: f64) -> Result<(), String> {
+        if !seconds.is_finite() || seconds < 0.0 {
+            return Err("server response delay must be a non-negative finite number".into());
+        }
+        let delay = Duration::try_from_secs_f64(seconds)
+            .map_err(|_| "server response delay is too large".to_string())?;
+        if Instant::now().checked_add(delay).is_none() {
+            return Err("server response delay is too large".into());
+        }
+        self.server_response_delivery
+            .lock()
+            .unwrap()
+            .set_delay(delay);
+        Ok(())
     }
 
     fn wait_for_shutdown(&mut self, timeout: Duration) -> bool {
@@ -580,6 +663,8 @@ impl RoomManager {
         let execution_control_for_room = options.execution_control.clone();
         let timer_control = Arc::new(TimerThreadControl::default());
         let timer_control_for_room = timer_control.clone();
+        let server_response_delivery = Arc::new(Mutex::new(ServerResponseDelivery::default()));
+        let server_response_delivery_for_room = server_response_delivery.clone();
 
         // Spawn room thread
         let room_id = id.clone();
@@ -597,6 +682,7 @@ impl RoomManager {
                     archive_dir,
                     options,
                     timer_control,
+                    server_response_delivery,
                 );
             })
             .expect("failed to spawn room thread");
@@ -609,6 +695,7 @@ impl RoomManager {
             join_handle: Some(handle),
             execution_control: execution_control_for_room,
             timer_control: timer_control_for_room,
+            server_response_delivery: server_response_delivery_for_room,
         };
 
         self.rooms.insert(id.clone(), room);
@@ -752,6 +839,7 @@ fn room_thread(
     archive_dir: String,
     options: RoomLaunchOptions,
     timer_control: Arc<TimerThreadControl>,
+    server_response_delivery: Arc<Mutex<ServerResponseDelivery>>,
 ) {
     let _archive_guard = options.archive_guard.clone();
     let running = Arc::new(AtomicBool::new(true));
@@ -910,6 +998,7 @@ fn room_thread(
                 trans_id_counter: trans_id_counter.clone(),
                 emit_log: emit_log.clone(),
                 emit_out_event: emit_out_event.clone(),
+                server_response_delivery: server_response_delivery.clone(),
                 archive_dir: archive_dir.clone(),
                 script_dir: script_dir.clone(),
             },
@@ -1001,6 +1090,22 @@ fn room_thread(
 
     // Event loop
     while running.load(Ordering::Relaxed) {
+        let due_responses = server_response_delivery
+            .lock()
+            .unwrap()
+            .take_due(Instant::now());
+        for response in due_responses {
+            let can_deliver = response.player_index < 0
+                || shared
+                    .read()
+                    .unwrap()
+                    .players
+                    .contains_key(&response.player_index);
+            if can_deliver {
+                emit_out_event(response.player_index, response.ename, response.evalue);
+            }
+        }
+
         match command_rx.try_recv() {
             Ok(cmd) => match cmd {
                 RoomCommand::DispatchEvent {
@@ -1184,7 +1289,15 @@ fn room_thread(
                     }
                     last_profile_extract = std::time::Instant::now();
                 }
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                let sleep_for = server_response_delivery
+                    .lock()
+                    .unwrap()
+                    .next_wait(Instant::now())
+                    .unwrap_or_else(|| Duration::from_millis(50))
+                    .min(Duration::from_millis(50));
+                if !sleep_for.is_zero() {
+                    std::thread::sleep(sleep_for);
+                }
             }
             Err(mpsc::error::TryRecvError::Disconnected) => {
                 break;
@@ -1414,6 +1527,7 @@ mod tests {
             join_handle: Some(handle),
             execution_control: None,
             timer_control: Arc::new(TimerThreadControl::default()),
+            server_response_delivery: Arc::new(Mutex::new(ServerResponseDelivery::default())),
         };
         let mut manager = RoomManager::new();
         manager.rooms.insert("blocked".to_string(), room);
@@ -1474,6 +1588,59 @@ mod tests {
             validate_user_event("ok", &"v".repeat(901)),
             ERR_EVENT_VALUE_LEN
         );
+    }
+
+    #[test]
+    fn server_response_delay_is_non_blocking_and_preserves_send_order() {
+        let directory = TestDirectory::new("response-delay");
+        std::fs::write(
+            directory.path().join("main.lua"),
+            r#"
+RegisterEvent("emit", function(_, _, eventData, playerIndex)
+    MsSendMlEvent(playerIndex, "delayed", eventData .. ":1")
+    MsSendMlEvent(playerIndex, "delayed", eventData .. ":2")
+end)
+"#,
+        )
+        .unwrap();
+        let (mut manager, room_id) = create_test_room(&directory, RoomLaunchOptions::default());
+        let room = manager.get_room(&room_id).unwrap();
+        assert!(room.barrier(Duration::from_secs(2)));
+        room.set_server_response_delay(0.4).unwrap();
+
+        let handler_start = Instant::now();
+        assert_eq!(
+            room.send_event("emit".to_string(), "first".to_string(), 0),
+            ERR_OK
+        );
+        assert!(room.barrier(Duration::from_millis(250)));
+        assert!(handler_start.elapsed() < Duration::from_millis(300));
+
+        room.set_server_response_delay(0.0).unwrap();
+        assert_eq!(
+            room.send_event("emit".to_string(), "second".to_string(), 0),
+            ERR_OK
+        );
+        assert!(room.barrier(Duration::from_millis(250)));
+        assert!(room.drain_events(0).is_empty());
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let events = loop {
+            let events = room.drain_events(0);
+            if !events.is_empty() || Instant::now() >= deadline {
+                break events;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.evalue.as_str())
+                .collect::<Vec<_>>(),
+            ["first:1", "first:2", "second:1", "second:2"]
+        );
+        assert!(handler_start.elapsed() >= Duration::from_millis(300));
+        assert!(manager.destroy_room_and_wait(&room_id, Duration::from_secs(2)));
     }
 
     #[test]
