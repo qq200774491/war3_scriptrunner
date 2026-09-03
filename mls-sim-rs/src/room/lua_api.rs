@@ -29,6 +29,7 @@ where
     pub emit_out_event: OutFn,
     pub server_response_delivery: Arc<Mutex<ServerResponseDelivery>>,
     pub archive_dir: String,
+    pub persist_archives_to_disk: bool,
     pub script_dir: PathBuf,
 }
 
@@ -64,6 +65,7 @@ where
         ctx.shared.clone(),
         ctx.emit_out_event.clone(),
         ctx.archive_dir.clone(),
+        ctx.persist_archives_to_disk,
     )?;
     install_control_api(
         lua,
@@ -742,11 +744,14 @@ where
     Ok(())
 }
 
+// persist_archives_to_disk 为 false 时（测试房间）三个写入口只更新内存中的玩家存档；
+// MsGet*Archive 始终从内存读取，磁盘文件只为跨房间重启的 GUI/桥接场景服务。
 fn install_archive_api<OutFn>(
     lua: &Lua,
     shared: Arc<RwLock<RoomSharedState>>,
     emit_out_event: OutFn,
     archive_dir: String,
+    persist_archives_to_disk: bool,
 ) -> LuaResult<()>
 where
     OutFn: Fn(i32, String, String) + Clone + Send + 'static,
@@ -786,7 +791,7 @@ where
                     ERR_PLAYER_NOT_EXIST
                 }
             };
-            if result == ERR_OK {
+            if result == ERR_OK && persist_archives_to_disk {
                 let shared = s.read().unwrap();
                 let _ = crate::storage::save_room_archives(
                     &ad,
@@ -833,7 +838,7 @@ where
                     ERR_PLAYER_NOT_EXIST
                 }
             };
-            if result == ERR_OK {
+            if result == ERR_OK && persist_archives_to_disk {
                 let shared = s.read().unwrap();
                 let _ = crate::storage::save_room_archives(
                     &ad_common,
@@ -863,12 +868,14 @@ where
             if result == ERR_OK {
                 let rdata = format!("{}\t{}", key, value);
                 emit_out(idx, "_rdata".to_string(), rdata);
-                let shared = s.read().unwrap();
-                let _ = crate::storage::save_room_archives(
-                    &ad_read,
-                    &shared.script_dir.to_string_lossy(),
-                    &shared.players,
-                );
+                if persist_archives_to_disk {
+                    let shared = s.read().unwrap();
+                    let _ = crate::storage::save_room_archives(
+                        &ad_read,
+                        &shared.script_dir.to_string_lossy(),
+                        &shared.players,
+                    );
+                }
             }
             Ok(result)
         })?,

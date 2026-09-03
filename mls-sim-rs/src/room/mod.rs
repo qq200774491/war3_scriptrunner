@@ -136,11 +136,26 @@ impl Drop for RoomThreadLifecycle {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct RoomLaunchOptions {
     pub bootstrap_files: Vec<PathBuf>,
     pub execution_control: Option<Arc<RoomExecutionControl>>,
     pub archive_guard: Option<Arc<tempfile::TempDir>>,
+    /// 每次 MsSaveScriptArchive / MsSet*Archive、玩家退出与房间关闭时是否把存档同步写入 archive_dir。
+    /// GUI 与桥接房间依赖磁盘存档跨房间重启，保持 true；测试房间只读内存中的存档，
+    /// 关闭 false 可免去每个用例数十次同步小文件写入，也让房间关闭不再经过磁盘。
+    pub persist_archives_to_disk: bool,
+}
+
+impl Default for RoomLaunchOptions {
+    fn default() -> Self {
+        Self {
+            bootstrap_files: Vec::new(),
+            execution_control: None,
+            archive_guard: None,
+            persist_archives_to_disk: true,
+        }
+    }
 }
 
 fn now_ts() -> f64 {
@@ -1000,6 +1015,7 @@ fn room_thread(
                 emit_out_event: emit_out_event.clone(),
                 server_response_delivery: server_response_delivery.clone(),
                 archive_dir: archive_dir.clone(),
+                persist_archives_to_disk: options.persist_archives_to_disk,
                 script_dir: script_dir.clone(),
             },
         )
@@ -1193,7 +1209,7 @@ fn room_thread(
                             player_index,
                             &emit_log,
                         );
-                        {
+                        if options.persist_archives_to_disk {
                             let s = shared.read().unwrap();
                             let _ = crate::storage::save_room_archives(
                                 &archive_dir,
@@ -1306,7 +1322,7 @@ fn room_thread(
     }
 
     // Save archives
-    {
+    if options.persist_archives_to_disk {
         let s = shared.read().unwrap();
         if let Err(e) = crate::storage::save_room_archives(
             &archive_dir,
@@ -1670,6 +1686,7 @@ end)
             bootstrap_files: vec![directory.path().join("bootstrap.lua")],
             execution_control: None,
             archive_guard: None,
+            ..RoomLaunchOptions::default()
         };
         let (mut manager, room_id) = create_test_room(&directory, options);
         let room = manager.get_room(&room_id).unwrap();
@@ -1706,6 +1723,7 @@ end)
                 bootstrap_files,
                 execution_control: Some(control),
                 archive_guard: None,
+                ..RoomLaunchOptions::default()
             };
             let (mut manager, room_id) = create_test_room(&directory, options);
 
@@ -1742,6 +1760,7 @@ end)
             bootstrap_files: Vec::new(),
             execution_control: Some(control),
             archive_guard: None,
+            ..RoomLaunchOptions::default()
         };
         let (mut manager, room_id) = create_test_room(&directory, options);
         assert!(manager
@@ -1789,6 +1808,7 @@ end)
             bootstrap_files: Vec::new(),
             execution_control: Some(control.clone()),
             archive_guard: None,
+            ..RoomLaunchOptions::default()
         };
         let (mut manager, room_id) = create_test_room(&directory, options);
         let room = manager.get_room(&room_id).unwrap();

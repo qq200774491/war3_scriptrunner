@@ -1442,6 +1442,8 @@ fn run_invocation(
             bootstrap_files: suite.bootstrap_files.clone(),
             execution_control: Some(control.clone()),
             archive_guard: Some(archive_dir.clone()),
+            // 每个用例都是全新房间，存档只在内存中往返，不需要也不读取磁盘文件。
+            persist_archives_to_disk: false,
         },
     );
 
