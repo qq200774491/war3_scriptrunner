@@ -1912,7 +1912,8 @@ fn create_client_table(
                 if Instant::now() >= wait_deadline {
                     return Ok(LuaValue::Nil);
                 }
-                std::thread::sleep(Duration::from_millis(5));
+                // 房间线程已按命令即时唤醒，这里的轮询间隔决定单次请求往返的下限。
+                std::thread::sleep(Duration::from_millis(1));
             }
         })?,
     )?;

@@ -1,5 +1,5 @@
 use super::{
-    now_secs, validate_user_event, EventHandler, RoomCommand, RoomSharedState,
+    now_secs, validate_user_event, CommandSender, EventHandler, RoomCommand, RoomSharedState,
     ServerResponseDelivery, TimerThreadControl, ERR_ITEM_NOT_ENOUGH, ERR_ITEM_NOT_FOUND, ERR_OK,
     ERR_PLAYER_NOT_EXIST, ERR_SCRIPT_ARCHIVE_TOO_LONG, ERR_UNKNOWN, MAX_LOG_LEN,
     MAX_SCRIPT_ARCHIVE_LEN,
@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use tokio::sync::mpsc;
 
 pub(super) struct InstallLuaApiContext<LogFn, OutFn>
 where
@@ -17,7 +16,7 @@ where
     OutFn: Fn(i32, String, String) + Clone + Send + 'static,
 {
     pub shared: Arc<RwLock<RoomSharedState>>,
-    pub command_tx: mpsc::UnboundedSender<RoomCommand>,
+    pub command_tx: CommandSender,
     pub running: Arc<AtomicBool>,
     pub timer_control: Arc<TimerThreadControl>,
     pub event_handlers: Arc<Mutex<HashMap<String, Vec<EventHandler>>>>,
@@ -125,7 +124,7 @@ where
 
 fn install_timer_api(
     lua: &Lua,
-    command_tx: mpsc::UnboundedSender<RoomCommand>,
+    command_tx: CommandSender,
     running: Arc<AtomicBool>,
     timer_control: Arc<TimerThreadControl>,
     ticker_callbacks: Arc<Mutex<HashMap<i32, mlua::RegistryKey>>>,
@@ -887,7 +886,7 @@ where
 fn install_control_api<LogFn, OutFn>(
     lua: &Lua,
     shared: Arc<RwLock<RoomSharedState>>,
-    command_tx: mpsc::UnboundedSender<RoomCommand>,
+    command_tx: CommandSender,
     emit_log: LogFn,
     emit_out_event: OutFn,
     server_response_delivery: Arc<Mutex<ServerResponseDelivery>>,

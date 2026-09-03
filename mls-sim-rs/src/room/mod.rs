@@ -124,6 +124,58 @@ impl TimerThreadControl {
     }
 }
 
+/// 房间事件循环的唤醒信号：命令入队后立即唤醒空闲中的循环，避免固定轮询间隔带来的延迟。
+#[derive(Debug, Default)]
+pub struct WakeSignal {
+    pending: Mutex<bool>,
+    condvar: Condvar,
+}
+
+impl WakeSignal {
+    pub fn notify(&self) {
+        let mut pending = self.pending.lock().unwrap();
+        *pending = true;
+        self.condvar.notify_all();
+    }
+
+    /// 等待唤醒或超时。调用前已有尚未消费的唤醒时立即返回，因此通知不会在两次检查之间丢失。
+    pub fn wait(&self, timeout: Duration) {
+        let guard = self.pending.lock().unwrap();
+        let (mut guard, _) = self
+            .condvar
+            .wait_timeout_while(guard, timeout, |pending| !*pending)
+            .unwrap();
+        *guard = false;
+    }
+}
+
+/// 带唤醒的房间命令发送端。所有发往房间线程的命令都经由此处，保证事件循环被立即唤醒。
+#[derive(Clone)]
+pub struct CommandSender {
+    tx: mpsc::UnboundedSender<RoomCommand>,
+    wake: Arc<WakeSignal>,
+}
+
+impl CommandSender {
+    pub fn new(tx: mpsc::UnboundedSender<RoomCommand>) -> Self {
+        Self {
+            tx,
+            wake: Arc::new(WakeSignal::default()),
+        }
+    }
+
+    pub fn send(&self, command: RoomCommand) -> Result<(), mpsc::error::SendError<RoomCommand>> {
+        let result = self.tx.send(command);
+        self.wake.notify();
+        result
+    }
+
+    /// 房间线程在命令队列为空时调用：阻塞到有新命令入队或超时。
+    pub fn wait_for_command(&self, timeout: Duration) {
+        self.wake.wait(timeout);
+    }
+}
+
 struct RoomThreadLifecycle {
     running: Arc<AtomicBool>,
     timer_control: Arc<TimerThreadControl>,
@@ -399,7 +451,7 @@ impl RoomSharedState {
 
 pub struct Room {
     pub shared: Arc<RwLock<RoomSharedState>>,
-    pub command_tx: mpsc::UnboundedSender<RoomCommand>,
+    pub command_tx: CommandSender,
     pub log_tx: broadcast::Sender<LogEntry>,
     pub out_event_tx: broadcast::Sender<OutEvent>,
     pub join_handle: Option<std::thread::JoinHandle<()>>,
@@ -644,7 +696,8 @@ impl RoomManager {
     ) -> String {
         self.next_id += 1;
         let id = format!("room-{:03}", self.next_id);
-        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let (raw_command_tx, command_rx) = mpsc::unbounded_channel();
+        let command_tx = CommandSender::new(raw_command_tx);
         let (log_tx, _) = broadcast::channel(256);
         let (out_event_tx, _) = broadcast::channel(256);
 
@@ -847,7 +900,7 @@ fn room_thread(
     room_id: String,
     script_dir: PathBuf,
     shared: Arc<RwLock<RoomSharedState>>,
-    command_tx: mpsc::UnboundedSender<RoomCommand>,
+    command_tx: CommandSender,
     mut command_rx: mpsc::UnboundedReceiver<RoomCommand>,
     log_tx: broadcast::Sender<LogEntry>,
     out_event_tx: broadcast::Sender<OutEvent>,
@@ -1305,14 +1358,16 @@ fn room_thread(
                     }
                     last_profile_extract = std::time::Instant::now();
                 }
-                let sleep_for = server_response_delivery
+                // 空闲时阻塞到下一条命令入队或下一次延迟投递到期；50ms 只是兜底上限，
+                // 命令到达会立即唤醒，避免每次请求都要等一个轮询周期。
+                let wait_for = server_response_delivery
                     .lock()
                     .unwrap()
                     .next_wait(Instant::now())
                     .unwrap_or_else(|| Duration::from_millis(50))
                     .min(Duration::from_millis(50));
-                if !sleep_for.is_zero() {
-                    std::thread::sleep(sleep_for);
+                if !wait_for.is_zero() {
+                    command_tx.wait_for_command(wait_for);
                 }
             }
             Err(mpsc::error::TryRecvError::Disconnected) => {
@@ -1527,7 +1582,8 @@ mod tests {
             profiler_available: false,
             profiler_running: false,
         }));
-        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let (raw_command_tx, command_rx) = mpsc::unbounded_channel();
+        let command_tx = CommandSender::new(raw_command_tx);
         let (log_tx, _) = broadcast::channel(1);
         let (out_event_tx, _) = broadcast::channel(1);
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
