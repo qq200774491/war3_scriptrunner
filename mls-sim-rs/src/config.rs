@@ -131,6 +131,9 @@ pub struct AutoRoomConfig {
     pub rankings_loaded: Option<bool>,
     #[serde(default)]
     pub rankings: Option<HashMap<i32, Vec<RankingEntry>>>,
+    /// 是否提供全局存档与地图广播（MsGA* / MsBroadcast）；缺省为 true，设为 false 模拟旧平台。
+    #[serde(default)]
+    pub global_archive_api: Option<bool>,
     #[serde(default = "default_players")]
     pub players: Vec<PlayerConfig>,
 }
@@ -342,6 +345,7 @@ impl AppConfig {
                 prebook_count: None,
                 rankings_loaded: None,
                 rankings: None,
+                global_archive_api: None,
                 players: default_players(),
             });
         }
@@ -434,6 +438,9 @@ pub fn build_room_simulation_from_config(
         if let Some(ref v) = config.rankings {
             data.rankings = v.clone();
             data.sort_rankings();
+        }
+        if let Some(v) = config.global_archive_api {
+            data.global_archive_api = v;
         }
     }
     data

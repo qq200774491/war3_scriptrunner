@@ -27,6 +27,14 @@ pub struct RoomSimulationData {
     pub prebook_count: i32,
     pub rankings_loaded: bool,
     pub rankings: HashMap<i32, Vec<RankingEntry>>,
+    /// 是否向云脚本提供全局存档与地图广播（MsGA* / MsBroadcast）。
+    /// 关闭时这些全局函数不存在，用于模拟尚未提供该能力的平台环境。
+    #[serde(default = "default_global_archive_api")]
+    pub global_archive_api: bool,
+}
+
+fn default_global_archive_api() -> bool {
+    true
 }
 
 impl RoomSimulationData {
@@ -46,6 +54,7 @@ impl RoomSimulationData {
             prebook_count: DEFAULT_PREBOOK_COUNT,
             rankings_loaded: true,
             rankings,
+            global_archive_api: default_global_archive_api(),
         }
     }
 
@@ -64,6 +73,7 @@ impl Default for RoomSimulationData {
             prebook_count: DEFAULT_PREBOOK_COUNT,
             rankings_loaded: true,
             rankings: HashMap::new(),
+            global_archive_api: default_global_archive_api(),
         }
     }
 }

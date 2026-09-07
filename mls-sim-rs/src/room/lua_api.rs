@@ -1,3 +1,4 @@
+use super::global_archive::{GaArgs, SharedGlobalArchive};
 use super::{
     now_secs, validate_user_event, CommandSender, EventHandler, RoomCommand, RoomSharedState,
     ServerResponseDelivery, TimerThreadControl, ERR_ITEM_NOT_ENOUGH, ERR_ITEM_NOT_FOUND, ERR_OK,
@@ -30,6 +31,8 @@ where
     pub archive_dir: String,
     pub persist_archives_to_disk: bool,
     pub script_dir: PathBuf,
+    /// Some 时安装 MsGA* 与 MsBroadcast；None 表示模拟没有全局存档能力的旧平台。
+    pub global_archive: Option<SharedGlobalArchive>,
 }
 
 pub(super) fn install_lua_apis<LogFn, OutFn>(
@@ -75,7 +78,97 @@ where
         ctx.server_response_delivery,
     )?;
     install_md5_api(lua)?;
+    if let Some(store) = ctx.global_archive {
+        install_global_archive_api(lua, store, ctx.command_tx.clone(), ctx.trans_id_counter)?;
+    }
     install_require(lua, ctx.script_dir)?;
+    Ok(())
+}
+
+// 全局存档：每个 API 立即返回 trans_id，结果经房间命令队列异步投递 `_msga_reply`；
+// 绝不在调用栈内同步回调，否则"先调用再登记 pending"的生产写法在模拟器里永远正确、真机上却可能失败。
+fn install_global_archive_api(
+    lua: &Lua,
+    store: SharedGlobalArchive,
+    command_tx: CommandSender,
+    trans_id_counter: Arc<AtomicI32>,
+) -> LuaResult<()> {
+    fn lua_table_to_string_pairs(table: &LuaTable) -> LuaResult<Vec<(String, String)>> {
+        let mut pairs = Vec::new();
+        for pair in table.pairs::<LuaValue, LuaValue>() {
+            let (field, value) = pair?;
+            pairs.push((lua_value_to_string(&field), lua_value_to_string(&value)));
+        }
+        Ok(pairs)
+    }
+
+    fn lua_table_to_string_list(table: &LuaTable) -> LuaResult<Vec<String>> {
+        let mut list = Vec::new();
+        for value in table.sequence_values::<LuaValue>() {
+            list.push(lua_value_to_string(&value?));
+        }
+        Ok(list)
+    }
+
+    macro_rules! ga_api {
+        ($name:expr, |$($arg:ident : $ty:ty),*| $build:expr) => {{
+            let store = store.clone();
+            let command_tx = command_tx.clone();
+            let trans_id_counter = trans_id_counter.clone();
+            lua.globals().set(
+                $name,
+                lua.create_function(move |_, ($($arg,)*): ($($ty,)*)| {
+                    let trans_id = trans_id_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                    let args = $build;
+                    let mut store = store.lock().unwrap();
+                    let outcome = store.execute($name, args);
+                    store.deliver_reply(&command_tx, $name, trans_id, outcome);
+                    Ok(trans_id)
+                })?,
+            )?;
+        }};
+    }
+
+    ga_api!("MsGASet", |key: String, value: LuaValue| GaArgs::Set {
+        key,
+        value: lua_value_to_string(&value),
+    });
+    ga_api!("MsGAGet", |key: String| GaArgs::Get { key });
+    ga_api!("MsGADel", |key: String| GaArgs::Del { key });
+    ga_api!("MsGAIncrby", |key: String, delta: i64| GaArgs::Incrby {
+        key,
+        delta
+    });
+    ga_api!("MsGAHmSet", |key: String, kvs: LuaTable| GaArgs::HmSet {
+        key,
+        kvs: lua_table_to_string_pairs(&kvs)?,
+    });
+    ga_api!("MsGAHmGet", |key: String, fields: LuaTable| GaArgs::HmGet {
+        key,
+        fields: lua_table_to_string_list(&fields)?,
+    });
+    ga_api!("MsGAHGetAll", |key: String| GaArgs::HGetAll { key });
+    ga_api!("MsGAHIncrby", |key: String, field: String, delta: i64| {
+        GaArgs::HIncrby { key, field, delta }
+    });
+    ga_api!("MsGAHDel", |key: String, fields: LuaTable| GaArgs::HDel {
+        key,
+        fields: lua_table_to_string_list(&fields)?,
+    });
+    ga_api!("MsGALockAcquire", |key: String, ttl_ms: i64| {
+        GaArgs::LockAcquire { key, ttl_ms }
+    });
+    ga_api!("MsGALockRelease", |key: String| GaArgs::LockRelease { key });
+
+    let broadcast_store = store.clone();
+    lua.globals().set(
+        "MsBroadcast",
+        lua.create_function(move |_, (key, value): (String, LuaValue)| {
+            let value = lua_value_to_string(&value);
+            broadcast_store.lock().unwrap().broadcast(&key, &value);
+            Ok(())
+        })?,
+    )?;
     Ok(())
 }
 

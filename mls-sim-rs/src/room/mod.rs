@@ -1,9 +1,11 @@
+pub mod global_archive;
 pub mod json_lua;
 pub mod lua_api;
 mod profiler;
 
 use crate::player::Player;
 use crate::simulation::RoomSimulationData;
+use global_archive::{GlobalArchiveStore, SharedGlobalArchive};
 use mlua::prelude::*;
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
@@ -197,6 +199,10 @@ pub struct RoomLaunchOptions {
     /// GUI 与桥接房间依赖磁盘存档跨房间重启，保持 true；测试房间只读内存中的存档，
     /// 关闭 false 可免去每个用例数十次同步小文件写入，也让房间关闭不再经过磁盘。
     pub persist_archives_to_disk: bool,
+    /// 房间要接入的全局存档。为 None 且 `simulation.global_archive_api` 为真时，
+    /// 由 RoomManager 按 script_dir 分配共享实例；最终仍为 None 时不安装 MsGA* / MsBroadcast，
+    /// 即模拟"旧平台"，云脚本探测到全局函数缺失后应自行降级。
+    pub global_archive: Option<SharedGlobalArchive>,
 }
 
 impl Default for RoomLaunchOptions {
@@ -206,6 +212,7 @@ impl Default for RoomLaunchOptions {
             execution_control: None,
             archive_guard: None,
             persist_archives_to_disk: true,
+            global_archive: None,
         }
     }
 }
@@ -456,6 +463,8 @@ pub struct Room {
     pub out_event_tx: broadcast::Sender<OutEvent>,
     pub join_handle: Option<std::thread::JoinHandle<()>>,
     pub execution_control: Option<Arc<RoomExecutionControl>>,
+    /// 房间接入的全局存档；None 表示该房间以"旧平台"方式运行，没有 MsGA* / MsBroadcast。
+    pub global_archive: Option<SharedGlobalArchive>,
     timer_control: Arc<TimerThreadControl>,
     server_response_delivery: Arc<Mutex<ServerResponseDelivery>>,
 }
@@ -646,6 +655,9 @@ impl Room {
 pub struct RoomManager {
     pub rooms: HashMap<String, Room>,
     next_id: u32,
+    /// 按 script_dir 共享的全局存档：同一 manager 内同一地图的房间读写同一份数据、广播互达。
+    /// 测试运行器为每个用例建立独立 manager，用例之间因此天然隔离。
+    global_archives: HashMap<PathBuf, SharedGlobalArchive>,
 }
 
 impl RoomManager {
@@ -653,7 +665,26 @@ impl RoomManager {
         Self {
             rooms: HashMap::new(),
             next_id: 0,
+            global_archives: HashMap::new(),
         }
+    }
+
+    /// 取得或创建 script_dir 对应的共享全局存档。
+    pub fn global_archive_for_script(&mut self, script_dir: &Path) -> SharedGlobalArchive {
+        let key = script_dir
+            .canonicalize()
+            .unwrap_or_else(|_| script_dir.to_path_buf());
+        self.global_archives
+            .entry(key)
+            .or_insert_with(|| Arc::new(Mutex::new(GlobalArchiveStore::default())))
+            .clone()
+    }
+
+    /// 房间接入的全局存档；房间不存在或以旧平台方式运行时为 None。
+    pub fn global_archive_for_room(&self, room_id: &str) -> Option<SharedGlobalArchive> {
+        self.rooms
+            .get(room_id)
+            .and_then(|room| room.global_archive.clone())
     }
 
     pub fn create_room(
@@ -692,7 +723,7 @@ impl RoomManager {
         players: HashMap<i32, Player>,
         simulation: RoomSimulationData,
         archive_dir: String,
-        options: RoomLaunchOptions,
+        mut options: RoomLaunchOptions,
     ) -> String {
         self.next_id += 1;
         let id = format!("room-{:03}", self.next_id);
@@ -700,6 +731,18 @@ impl RoomManager {
         let command_tx = CommandSender::new(raw_command_tx);
         let (log_tx, _) = broadcast::channel(256);
         let (out_event_tx, _) = broadcast::channel(256);
+
+        // 全局存档按 script_dir 共享；房间线程结束时退订，广播不再投递给已关闭房间。
+        if options.global_archive.is_none() && simulation.global_archive_api {
+            options.global_archive = Some(self.global_archive_for_script(&script_dir));
+        }
+        if let Some(store) = &options.global_archive {
+            store
+                .lock()
+                .unwrap()
+                .subscribe(id.clone(), command_tx.clone());
+        }
+        let global_archive_for_room = options.global_archive.clone();
 
         let out_queues = players
             .keys()
@@ -762,6 +805,7 @@ impl RoomManager {
             out_event_tx: out_event_tx_for_room,
             join_handle: Some(handle),
             execution_control: execution_control_for_room,
+            global_archive: global_archive_for_room,
             timer_control: timer_control_for_room,
             server_response_delivery: server_response_delivery_for_room,
         };
@@ -1070,6 +1114,7 @@ fn room_thread(
                 archive_dir: archive_dir.clone(),
                 persist_archives_to_disk: options.persist_archives_to_disk,
                 script_dir: script_dir.clone(),
+                global_archive: options.global_archive.clone(),
             },
         )
     }) {
@@ -1388,6 +1433,11 @@ fn room_thread(
         }
     }
 
+    // 退订全局存档广播；共享数据本身留在 manager 中供同地图的其他房间继续使用。
+    if let Some(store) = &options.global_archive {
+        store.lock().unwrap().unsubscribe(&room_id);
+    }
+
     {
         let mut s = shared.write().unwrap();
         if s.status == RoomStatus::Running {
@@ -1431,9 +1481,16 @@ fn dispatch_lua_event<F>(
         };
 
         if let Some(func) = func_result {
-            if let Err(e) =
-                func.call::<()>((id, ename.to_string(), evalue.to_string(), player_index))
+            // 平台事实：全局存档的两个事件使用 API_GA 的 (name, payload, slot) 签名，
+            // 其余事件维持 (eventId, eventName, eventData, playerIndex)。
+            let call_result = if ename == global_archive::GA_REPLY_EVENT
+                || ename == global_archive::GA_BROADCAST_EVENT
             {
+                func.call::<()>((ename.to_string(), evalue.to_string(), player_index))
+            } else {
+                func.call::<()>((id, ename.to_string(), evalue.to_string(), player_index))
+            };
+            if let Err(e) = call_result {
                 emit_log(
                     "ERR",
                     "Event",
@@ -1598,6 +1655,7 @@ mod tests {
             out_event_tx,
             join_handle: Some(handle),
             execution_control: None,
+            global_archive: None,
             timer_control: Arc::new(TimerThreadControl::default()),
             server_response_delivery: Arc::new(Mutex::new(ServerResponseDelivery::default())),
         };

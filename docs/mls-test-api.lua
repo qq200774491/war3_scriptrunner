@@ -62,6 +62,66 @@ function MlsTestContext:playerLeave(options) end
 ---@return integer errnum
 function MlsTestContext:playerExit(options) end
 
+---Read a global archive KV entry directly from the store (nil when absent).
+---@param key string
+---@return string? value
+function MlsTestContext:gaGet(key) end
+
+---Write a global archive KV entry directly; tables are JSON-encoded.
+---@param key string
+---@param value string|integer|table
+---@return boolean accepted
+function MlsTestContext:gaSet(key, value) end
+
+---@param key string
+---@return integer removed
+function MlsTestContext:gaDel(key) end
+
+---@param key string
+---@return table<string, string> fields
+function MlsTestContext:gaHGetAll(key) end
+
+---@param key string
+---@param kvs table<string, string|integer|table>
+---@return boolean accepted
+function MlsTestContext:gaHmSet(key, kvs) end
+
+---@param key string
+---@param fields string[]
+---@return integer removed
+function MlsTestContext:gaHDel(key, fields) end
+
+---Hold a lock as if another room acquired it.
+---@param key string
+---@param ttlMs integer
+---@return boolean acquired
+function MlsTestContext:gaLock(key, ttlMs) end
+
+---@param key string
+function MlsTestContext:gaUnlock(key) end
+
+---Broadcast to every room of this test as if another room sent it; tables are JSON-encoded.
+---@param key string
+---@param value string|table
+---@return boolean sent
+function MlsTestContext:gaBroadcast(key, value) end
+
+---Delay every subsequent _msga_reply by the given seconds (0 restores immediate delivery).
+---@param seconds number
+function MlsTestContext:setGaReplyDelay(seconds) end
+
+---@class MlsTestGaFault
+---@field op? string Platform op name such as 'MsGAGet'; nil matches every op.
+---@field errnu? integer Non-zero errnu to inject, default 2.
+---@field count? integer Number of calls to fail; nil keeps failing until cleared.
+
+---Inject platform failures into subsequent MsGA* calls; pass nil to clear.
+---@param rule MlsTestGaFault?
+function MlsTestContext:setGaFault(rule) end
+
+---@return {kv: table<string, string>, hashes: table<string, table<string, string>>, locks: table<string, string>}
+function MlsTestContext:gaDump() end
+
 ---@alias MlsTestBody fun(context:MlsTestContext)
 
 ---@param name string

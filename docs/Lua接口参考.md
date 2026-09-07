@@ -90,6 +90,10 @@ local err = MsSendMlEvent(player_index, "asset_update", json.encode({gold = 100}
 | `_playerexit` | 玩家退出 | `{"reason": "Logout"}` |
 | `_playerleave` | 玩家断线 | `{"reason": "Disconnect"}` |
 | `_playerjoin` | 玩家重连 | `{"reason": "Connect"}` |
+| `_msga_reply` | 全局存档 / 锁 API 的异步回包 | `{"errnu":0,"op":"MsGAGet","trans_id":1,"data":{"value":"x"}}` |
+| `_msbroadcast` | 收到同地图房间的广播 | `{"key":"boss_dead","value":"{\"boss_id\":1}"}` |
+
+`_msga_reply` 与 `_msbroadcast` 的回调签名是 `(name, payload, slot)`，其余事件是 `(id, ename, evalue, player_index)`，见“全局存档与地图广播”。
 
 ---
 
@@ -258,6 +262,47 @@ local value = MsGetCfgArchive(player_index, "global_config")  -- 返回 string �
 - 房间停止时自动保存到 `archives/<脚本目录名>.json`
 - 下次创建房间时自动加载上次保存的存档
 - 脚本中应在 `_playerexit` 事件中调用 `MsSaveScriptArchive` 保存
+
+---
+
+## 全局存档与地图广播（Beta）
+
+对应平台 [API_GA.md](https://gitee.com/dzpt/mls/blob/master/API_GA.md)。同一进程内、同一脚本目录的所有房间共享一份全局存档并互相收到广播，对应平台的 `map_id` 级共享；数据只保存在内存中，进程退出即丢失。
+
+`config.json` 的 `auto_room.global_archive_api` 或测试清单 `room.global_archive_api` 设为 `false` 时，下列全局函数**不存在**，用于模拟尚未提供该能力的平台环境。
+
+```lua
+-- KV
+local tid = MsGASet("cur_boss", "dragon")          -- data = {ok = true}
+local tid = MsGAGet("cur_boss")                    -- data = {value = string|nil}
+local tid = MsGADel("cur_boss")                    -- data = {value = 删除数}
+local tid = MsGAIncrby("global_kills", 1)          -- data = {value = 新值}；key 须为整数串或不存在
+-- Hash
+local tid = MsGAHmSet("boss:1", {hp = "100", phase = "1"})   -- data = {value = 字段数}
+local tid = MsGAHmGet("boss:1", {"hp", "phase"})             -- data = {value = {hp = "100", phase = "1"}}
+local tid = MsGAHGetAll("boss:1")                            -- data = {value = {...}}
+local tid = MsGAHIncrby("boss:1", "hp", -5)                  -- data = {value = 新值}
+local tid = MsGAHDel("boss:1", {"phase"})                    -- data = {value = 删除数}；删空后整个 hash 回收
+-- 锁
+local tid = MsGALockAcquire("boss_settle:1", 5000) -- data = {ok = bool, token = string, ttl_ms = int}；抢不到 errnu 仍为 0
+local tid = MsGALockRelease("boss_settle:1")       -- data = {ok = true}；裸删，不校验持有者
+-- 广播
+MsBroadcast("boss_dead", json.encode({boss_id = 1}))   -- 无返回值
+```
+
+所有存档 / 锁 API 立即返回 `trans_id`，结果**始终异步**经 `_msga_reply` 回调，回调签名与其他事件不同：
+
+```lua
+RegisterEvent("_msga_reply", function(name, payload, slot)
+    local msg = json.decode(payload)   -- {errnu = 0, op = "MsGAGet", trans_id = 1, data = {...}}
+end)
+
+RegisterEvent("_msbroadcast", function(name, payload, slot)
+    local msg = json.decode(payload)   -- {key = "boss_dead", value = "<发起方传入的字符串>"}
+end)
+```
+
+模拟器按平台限制校验：key ≤ 256 字节、value ≤ 4096 字节、`HmSet` 总量 ≤ 40960 字节、回包 ≤ 64 KB、锁 ttl 截断到 1000～300000 毫秒、广播 key ≤ 128 字节 / value ≤ 4096 字节（超限直接丢弃）。模拟器错误码：`0` 成功、`1` 参数非法、`2` 存储故障（只由测试故障注入产生）、`3` 结果超过 64 KB、`4` 内部错误；线上平台的具体取值可能不同，云脚本只应区分 0 与非 0。
 
 ---
 

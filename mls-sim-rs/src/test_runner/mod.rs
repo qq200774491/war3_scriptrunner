@@ -45,8 +45,13 @@ struct TestRoomConfig {
     prebook_count: Option<i32>,
     rankings_loaded: Option<bool>,
     rankings: Option<HashMap<i32, Vec<RankingEntry>>>,
+    /// 缺省 true；用例带 `[no-ga]` 标签时该用例的房间强制不提供 MsGA* / MsBroadcast。
+    global_archive_api: Option<bool>,
     players: Vec<PlayerConfig>,
 }
+
+/// 关闭全局存档能力的用例标签：房间以"旧平台"方式创建，ctx 上的 ga* 方法会报错。
+const NO_GLOBAL_ARCHIVE_TAG: &str = "no-ga";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -619,6 +624,7 @@ fn validate_manifest_keys(value: &serde_json::Value) -> RunnerResult<()> {
                 "prebook_count",
                 "rankings_loaded",
                 "rankings",
+                "global_archive_api",
                 "players",
             ],
         )?;
@@ -1425,6 +1431,10 @@ fn run_invocation(
         prebook_count: suite.room.prebook_count,
         rankings_loaded: suite.room.rankings_loaded,
         rankings: suite.room.rankings.clone(),
+        global_archive_api: Some(
+            suite.room.global_archive_api.unwrap_or(true)
+                && !case.tags.iter().any(|tag| tag == NO_GLOBAL_ARCHIVE_TAG),
+        ),
         players: suite.room.players.clone(),
     };
     let simulation = config::build_room_simulation_from_config(Some(&auto_config), &players);
@@ -1444,6 +1454,8 @@ fn run_invocation(
             archive_guard: Some(archive_dir.clone()),
             // 每个用例都是全新房间，存档只在内存中往返，不需要也不读取磁盘文件。
             persist_archives_to_disk: false,
+            // 由本用例独立的 RoomManager 按 script_dir 分配，用例之间互不可见。
+            global_archive: None,
         },
     );
 
@@ -1810,12 +1822,244 @@ fn create_test_context(
         lua,
         &context,
         "playerExit",
-        manager,
-        room_id,
+        manager.clone(),
+        room_id.clone(),
         deadline,
         LifecycleAction::Exit,
     )?;
+    install_global_archive_methods(lua, &context, manager, room_id)?;
     Ok(context)
+}
+
+/// 把 serde_json 值转成 Lua 值；null 映射为 nil，与云脚本侧 json.decode 的行为一致。
+fn json_to_lua(lua: &Lua, value: &serde_json::Value) -> LuaResult<LuaValue> {
+    Ok(match value {
+        serde_json::Value::Null => LuaValue::Nil,
+        serde_json::Value::Bool(flag) => LuaValue::Boolean(*flag),
+        serde_json::Value::Number(number) => {
+            if let Some(integer) = number.as_i64() {
+                LuaValue::Integer(integer)
+            } else {
+                LuaValue::Number(number.as_f64().unwrap_or(0.0))
+            }
+        }
+        serde_json::Value::String(text) => LuaValue::String(lua.create_string(text)?),
+        serde_json::Value::Array(items) => {
+            let table = lua.create_table()?;
+            for (index, item) in items.iter().enumerate() {
+                table.raw_set(index + 1, json_to_lua(lua, item)?)?;
+            }
+            LuaValue::Table(table)
+        }
+        serde_json::Value::Object(fields) => {
+            let table = lua.create_table()?;
+            for (field, item) in fields {
+                table.raw_set(field.as_str(), json_to_lua(lua, item)?)?;
+            }
+            LuaValue::Table(table)
+        }
+    })
+}
+
+/// 测试侧直接读写全局存档、模拟他房广播与故障注入；房间以旧平台方式运行时这些方法报错。
+fn install_global_archive_methods(
+    lua: &Lua,
+    context: &LuaTable,
+    manager: Arc<Mutex<RoomManager>>,
+    room_id: String,
+) -> RunnerResult<()> {
+    use crate::room::global_archive::{GlobalArchiveFault, SharedGlobalArchive};
+
+    fn store_for(
+        manager: &Arc<Mutex<RoomManager>>,
+        room_id: &str,
+    ) -> LuaResult<SharedGlobalArchive> {
+        let manager = manager.lock().unwrap();
+        if manager.get_room(room_id).is_none() {
+            return Err(mlua::Error::RuntimeError(
+                "cloud room no longer exists".into(),
+            ));
+        }
+        manager.global_archive_for_room(room_id).ok_or_else(|| {
+            mlua::Error::RuntimeError(
+                "global archive is disabled for this test room ([no-ga] or manifest)".into(),
+            )
+        })
+    }
+
+    fn string_pairs(table: &LuaTable) -> LuaResult<Vec<(String, String)>> {
+        let mut pairs = Vec::new();
+        for pair in table.pairs::<String, LuaValue>() {
+            let (field, value) = pair?;
+            pairs.push((field, lua_value_text(&value)?));
+        }
+        Ok(pairs)
+    }
+
+    fn string_list(table: &LuaTable) -> LuaResult<Vec<String>> {
+        let mut list = Vec::new();
+        for value in table.sequence_values::<String>() {
+            list.push(value?);
+        }
+        Ok(list)
+    }
+
+    fn lua_value_text(value: &LuaValue) -> LuaResult<String> {
+        match value {
+            LuaValue::String(text) => Ok(text.to_str()?.to_string()),
+            LuaValue::Integer(integer) => Ok(integer.to_string()),
+            LuaValue::Number(number) => Ok(number.to_string()),
+            LuaValue::Boolean(flag) => Ok(flag.to_string()),
+            LuaValue::Table(table) => {
+                let json: serde_json::Value = lua_table_to_json(table)?;
+                Ok(json.to_string())
+            }
+            other => Err(mlua::Error::RuntimeError(format!(
+                "unsupported global archive value type: {}",
+                other.type_name()
+            ))),
+        }
+    }
+
+    fn lua_table_to_json(table: &LuaTable) -> LuaResult<serde_json::Value> {
+        let length = table.raw_len();
+        let mut is_array = length > 0;
+        let mut object = serde_json::Map::new();
+        let mut array = Vec::new();
+        for pair in table.pairs::<LuaValue, LuaValue>() {
+            let (key, value) = pair?;
+            let json_value = match &value {
+                LuaValue::Table(inner) => lua_table_to_json(inner)?,
+                LuaValue::String(text) => serde_json::Value::String(text.to_str()?.to_string()),
+                LuaValue::Integer(integer) => serde_json::Value::from(*integer),
+                LuaValue::Number(number) => serde_json::Value::from(*number),
+                LuaValue::Boolean(flag) => serde_json::Value::Bool(*flag),
+                other => {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "unsupported broadcast payload value type: {}",
+                        other.type_name()
+                    )))
+                }
+            };
+            match key {
+                LuaValue::Integer(index) if is_array && index >= 1 && index as usize <= length => {
+                    array.push((index, json_value));
+                }
+                LuaValue::String(text) => {
+                    is_array = false;
+                    object.insert(text.to_str()?.to_string(), json_value);
+                }
+                LuaValue::Integer(index) => {
+                    is_array = false;
+                    object.insert(index.to_string(), json_value);
+                }
+                other => {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "unsupported broadcast payload key type: {}",
+                        other.type_name()
+                    )))
+                }
+            }
+        }
+        if is_array {
+            array.sort_by_key(|(index, _)| *index);
+            return Ok(serde_json::Value::Array(
+                array.into_iter().map(|(_, value)| value).collect(),
+            ));
+        }
+        for (index, value) in array {
+            object.insert(index.to_string(), value);
+        }
+        Ok(serde_json::Value::Object(object))
+    }
+
+    macro_rules! ga_method {
+        ($name:expr, |$lua:ident, $store:ident, ($($arg:ident : $ty:ty),*)| $body:block) => {{
+            let manager = manager.clone();
+            let room_id = room_id.clone();
+            context
+                .set(
+                    $name,
+                    lua.create_function(move |$lua, (_self, $($arg,)*): (LuaTable, $($ty,)*)| {
+                        let shared = store_for(&manager, &room_id)?;
+                        #[allow(unused_mut)]
+                        let mut $store = shared.lock().unwrap();
+                        $body
+                    })
+                    .map_err(lua_error)?,
+                )
+                .map_err(lua_error)?;
+        }};
+    }
+
+    ga_method!("gaGet", |lua, store, (key: String)| {
+        let outcome = store.get(&key);
+        json_to_lua(lua, &outcome.data["value"])
+    });
+    ga_method!("gaSet", |_lua, store, (key: String, value: LuaValue)| {
+        let outcome = store.set(&key, lua_value_text(&value)?);
+        Ok(outcome.errnu == 0)
+    });
+    ga_method!("gaDel", |_lua, store, (key: String)| {
+        let outcome = store.del(&key);
+        Ok(outcome.data["value"].as_i64().unwrap_or(0))
+    });
+    ga_method!("gaHGetAll", |lua, store, (key: String)| {
+        let outcome = store.hgetall(&key);
+        json_to_lua(lua, &outcome.data["value"])
+    });
+    ga_method!("gaHmSet", |_lua, store, (key: String, kvs: LuaTable)| {
+        let outcome = store.hmset(&key, string_pairs(&kvs)?);
+        Ok(outcome.errnu == 0)
+    });
+    ga_method!("gaHDel", |_lua, store, (key: String, fields: LuaTable)| {
+        let outcome = store.hdel(&key, &string_list(&fields)?);
+        Ok(outcome.data["value"].as_i64().unwrap_or(0))
+    });
+    ga_method!("gaLock", |_lua, store, (key: String, ttl_ms: i64)| {
+        let outcome = store.lock_acquire(&key, ttl_ms);
+        Ok(outcome.data["ok"].as_bool().unwrap_or(false))
+    });
+    ga_method!("gaUnlock", |_lua, store, (key: String)| {
+        store.lock_release(&key);
+        Ok(())
+    });
+    ga_method!("gaBroadcast", |_lua, store, (key: String, value: LuaValue)| {
+        Ok(store.broadcast(&key, &lua_value_text(&value)?))
+    });
+    ga_method!("setGaReplyDelay", |_lua, store, (seconds: f64)| {
+        if !seconds.is_finite() || seconds < 0.0 {
+            return Err(mlua::Error::RuntimeError(
+                "global archive reply delay must be a non-negative finite number".into(),
+            ));
+        }
+        store.set_reply_delay(Duration::from_secs_f64(seconds));
+        Ok(())
+    });
+    ga_method!("setGaFault", |_lua, store, (rule: Option<LuaTable>)| {
+        let fault = match rule {
+            None => None,
+            Some(rule) => {
+                let errnu = rule.get::<Option<i32>>("errnu")?.unwrap_or(2);
+                if errnu == 0 {
+                    return Err(mlua::Error::RuntimeError(
+                        "global archive fault errnu must be non-zero".into(),
+                    ));
+                }
+                Some(GlobalArchiveFault {
+                    op: rule.get::<Option<String>>("op")?,
+                    errnu,
+                    remaining: rule.get::<Option<u32>>("count")?,
+                })
+            }
+        };
+        store.set_fault(fault);
+        Ok(())
+    });
+    ga_method!("gaDump", |lua, store, ()| {
+        json_to_lua(lua, &store.dump())
+    });
+    Ok(())
 }
 
 fn create_client_table(

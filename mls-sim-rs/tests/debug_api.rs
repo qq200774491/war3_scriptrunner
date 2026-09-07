@@ -300,6 +300,7 @@ fn lua_new_api_uses_config_overrides_and_unloaded_rankings() {
         env_type: Some(2),
         prebook_count: Some(456),
         rankings_loaded: Some(false),
+        global_archive_api: None,
         rankings: Some(HashMap::from([(
             0,
             vec![RankingEntry {
