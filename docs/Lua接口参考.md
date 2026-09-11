@@ -93,7 +93,7 @@ local err = MsSendMlEvent(player_index, "asset_update", json.encode({gold = 100}
 | `_msga_reply` | 全局存档 / 锁 API 的异步回包 | `{"errnu":0,"op":"MsGAGet","trans_id":1,"data":{"value":"x"}}` |
 | `_msbroadcast` | 收到同地图房间的广播 | `{"key":"boss_dead","value":"{\"boss_id\":1}"}` |
 
-`_msga_reply` 与 `_msbroadcast` 的回调签名是 `(name, payload, slot)`，其余事件是 `(id, ename, evalue, player_index)`，见“全局存档与地图广播”。
+所有事件统一使用 `(eventId, eventName, eventData, playerIndex)` 四参数签名，GA 回包与广播的正文也位于第三参数。2026-09-12 人工真机 GA 日志已确认首参为注册编号，见“全局存档与地图广播”。
 
 ---
 
@@ -290,15 +290,15 @@ local tid = MsGALockRelease("boss_settle:1")       -- data = {ok = true}；裸�
 MsBroadcast("boss_dead", json.encode({boss_id = 1}))   -- 无返回值
 ```
 
-所有存档 / 锁 API 立即返回 `trans_id`，结果**始终异步**经 `_msga_reply` 回调，回调签名与其他事件不同：
+所有存档 / 锁 API 立即返回 `trans_id`，结果**始终异步**经 `_msga_reply` 回调，沿用 `RegisterEvent` 的四参数签名：
 
 ```lua
-RegisterEvent("_msga_reply", function(name, payload, slot)
-    local msg = json.decode(payload)   -- {errnu = 0, op = "MsGAGet", trans_id = 1, data = {...}}
+RegisterEvent("_msga_reply", function(eventId, eventName, eventData, playerIndex)
+    local msg = json.decode(eventData)   -- {errnu = 0, op = "MsGAGet", trans_id = 1, data = {...}}
 end)
 
-RegisterEvent("_msbroadcast", function(name, payload, slot)
-    local msg = json.decode(payload)   -- {key = "boss_dead", value = "<发起方传入的字符串>"}
+RegisterEvent("_msbroadcast", function(eventId, eventName, eventData, playerIndex)
+    local msg = json.decode(eventData)   -- {key = "boss_dead", value = "<发起方传入的字符串>"}
 end)
 ```
 

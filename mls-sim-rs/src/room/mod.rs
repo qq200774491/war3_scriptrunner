@@ -1481,15 +1481,9 @@ fn dispatch_lua_event<F>(
         };
 
         if let Some(func) = func_result {
-            // 平台事实：全局存档的两个事件使用 API_GA 的 (name, payload, slot) 签名，
-            // 其余事件维持 (eventId, eventName, eventData, playerIndex)。
-            let call_result = if ename == global_archive::GA_REPLY_EVENT
-                || ename == global_archive::GA_BROADCAST_EVENT
-            {
-                func.call::<()>((ename.to_string(), evalue.to_string(), player_index))
-            } else {
-                func.call::<()>((id, ename.to_string(), evalue.to_string(), player_index))
-            };
+            // RegisterEvent 统一投递四参数；2026-09-12 真机 GA 回包确认首参为注册编号、正文在第三参。
+            let call_result =
+                func.call::<()>((id, ename.to_string(), evalue.to_string(), player_index));
             if let Err(e) = call_result {
                 emit_log(
                     "ERR",
@@ -1504,6 +1498,54 @@ fn dispatch_lua_event<F>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn registered_events_deliver_id_name_payload_and_player() {
+        let lua = Lua::new();
+        for (id, name, data, player_index) in [
+            (
+                4,
+                "_msga_reply",
+                r#"{"trans_id":1,"op":"MsGAHGetAll","errnu":0,"data":{"value": {}}}"#,
+                -1,
+            ),
+            (
+                5,
+                "_msbroadcast",
+                r#"{"key":"ga:permissions:changed","value":"{}"}"#,
+                -1,
+            ),
+            (6, "ping", "hello", 0),
+        ] {
+            let callback: LuaFunction = lua
+                .load("return function(...) ga_test_args = table.pack(...) end")
+                .eval()
+                .unwrap();
+            let handlers = Arc::new(Mutex::new(HashMap::from([(
+                name.to_string(),
+                vec![EventHandler {
+                    id,
+                    func_key: lua.create_registry_value(callback).unwrap(),
+                }],
+            )])));
+            dispatch_lua_event(
+                &lua,
+                &handlers,
+                name,
+                data,
+                player_index,
+                &|_, _, message| {
+                    panic!("unexpected dispatch error: {message}");
+                },
+            );
+            let args: LuaTable = lua.globals().get("ga_test_args").unwrap();
+            assert_eq!(args.get::<usize>("n").unwrap(), 4);
+            assert_eq!(args.get::<i32>(1).unwrap(), id);
+            assert_eq!(args.get::<String>(2).unwrap(), name);
+            assert_eq!(args.get::<String>(3).unwrap(), data);
+            assert_eq!(args.get::<i32>(4).unwrap(), player_index);
+        }
+    }
 
     struct TestDirectory(PathBuf);
 
