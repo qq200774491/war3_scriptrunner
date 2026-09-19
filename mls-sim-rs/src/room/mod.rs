@@ -1,3 +1,4 @@
+pub mod ga_test_control;
 pub mod global_archive;
 pub mod json_lua;
 pub mod lua_api;
@@ -203,6 +204,8 @@ pub struct RoomLaunchOptions {
     /// 由 RoomManager 按 script_dir 分配共享实例；最终仍为 None 时不安装 MsGA* / MsBroadcast，
     /// 即模拟"旧平台"，云脚本探测到全局函数缺失后应自行降级。
     pub global_archive: Option<SharedGlobalArchive>,
+    /// 仅测试房间配置；控制本房间GA结果投递，不改变共享存储语义。
+    pub ga_test_control: Option<Arc<Mutex<ga_test_control::GaTestControl>>>,
 }
 
 impl Default for RoomLaunchOptions {
@@ -213,6 +216,7 @@ impl Default for RoomLaunchOptions {
             archive_guard: None,
             persist_archives_to_disk: true,
             global_archive: None,
+            ga_test_control: None,
         }
     }
 }
@@ -465,6 +469,7 @@ pub struct Room {
     pub execution_control: Option<Arc<RoomExecutionControl>>,
     /// 房间接入的全局存档；None 表示该房间以"旧平台"方式运行，没有 MsGA* / MsBroadcast。
     pub global_archive: Option<SharedGlobalArchive>,
+    pub ga_test_control: Option<Arc<Mutex<ga_test_control::GaTestControl>>>,
     timer_control: Arc<TimerThreadControl>,
     server_response_delivery: Arc<Mutex<ServerResponseDelivery>>,
 }
@@ -743,6 +748,7 @@ impl RoomManager {
                 .subscribe(id.clone(), command_tx.clone());
         }
         let global_archive_for_room = options.global_archive.clone();
+        let ga_test_control_for_room = options.ga_test_control.clone();
 
         let out_queues = players
             .keys()
@@ -806,6 +812,7 @@ impl RoomManager {
             join_handle: Some(handle),
             execution_control: execution_control_for_room,
             global_archive: global_archive_for_room,
+            ga_test_control: ga_test_control_for_room,
             timer_control: timer_control_for_room,
             server_response_delivery: server_response_delivery_for_room,
         };
@@ -1115,6 +1122,7 @@ fn room_thread(
                 persist_archives_to_disk: options.persist_archives_to_disk,
                 script_dir: script_dir.clone(),
                 global_archive: options.global_archive.clone(),
+                ga_test_control: options.ga_test_control.clone(),
             },
         )
     }) {
@@ -1698,6 +1706,7 @@ mod tests {
             join_handle: Some(handle),
             execution_control: None,
             global_archive: None,
+            ga_test_control: None,
             timer_control: Arc::new(TimerThreadControl::default()),
             server_response_delivery: Arc::new(Mutex::new(ServerResponseDelivery::default())),
         };

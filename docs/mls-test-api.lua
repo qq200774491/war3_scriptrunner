@@ -39,7 +39,36 @@ function MlsTestClient:waitEvent(options) end
 function MlsTestClient:clearEvents() end
 
 ---@class MlsTestContext
+---@field roomId string 当前用例内房间编号
 local MlsTestContext = {}
+
+---@class MlsTestRoomOptions
+---@field players? table[] 完整替换新房间玩家配置；其余配置继承当前用例清单
+
+---在同一用例中新建独立云VM，共享GA；返回完整房间上下文。
+---@param options? MlsTestRoomOptions
+---@return MlsTestContext
+function MlsTestContext:createRoom(options) end
+
+---关闭本房间；重复关闭返回false，其他房间继续运行。
+---@return boolean closed
+function MlsTestContext:close() end
+
+---暂扣本房间接下来count个指定操作回包；存储操作仍然立即执行。
+---@param op string
+---@param count? integer
+function MlsTestContext:holdGaReplies(op, count) end
+
+---@return {held:integer,armed:boolean,calls:table<string,integer>}
+function MlsTestContext:gaReplyState() end
+
+---解除闸门并投递暂扣结果，不重做存储操作。
+---@return integer count
+function MlsTestContext:releaseGaReplies() end
+
+---解除闸门并丢弃暂扣结果，模拟已写入但回包丢失。
+---@return integer count
+function MlsTestContext:dropGaReplies() end
 
 ---@param playerIndex integer
 ---@return MlsTestClient

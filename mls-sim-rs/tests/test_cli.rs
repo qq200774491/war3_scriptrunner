@@ -626,3 +626,132 @@ fn unknown_nested_manifest_field_is_a_preflight_error() {
     assert_eq!(report["status"], "error");
     assert!(report["errors"][0].as_str().unwrap().contains("typo_field"));
 }
+
+#[test]
+fn multi_room_ga_gates_isolation_and_close() {
+    let project = TestProject::with_main(
+        r#"
+local count = 0
+RegisterEvent('put', function(_, _, data, player)
+    count = count + 1
+    MsGASet('shared', data, function(reply)
+        MsSendMlEvent(player, 'done', tostring(count) .. ':' .. tostring(reply.errnu))
+    end)
+end)
+RegisterEvent('echo', function(_, _, data, player) MsSendMlEvent(player, 'echo', data) end)
+"#,
+        r#"
+TEST_CASE('two rooms', function(ctx)
+    CHECK_EQ(ctx:gaGet('shared'), nil)
+    local other = ctx:createRoom({players={{index=0,name='Other',platform={guid=9002}}}})
+    local a, b = ctx:client(0), other:client(0)
+    CHECK_NE(ctx.roomId, other.roomId)
+    CHECK(math.abs(a:now() - b:now()) < 0.05)
+    ctx:holdGaReplies('MsGASet')
+    a:send('put', 'A')
+    local deadline = a:now() + 0.5
+    while ctx:gaReplyState().held == 0 and a:now() < deadline do a:waitEvent({name='none',timeout=0.005}) end
+    REQUIRE_EQ(ctx:gaReplyState().held, 1)
+    CHECK_EQ(other:gaGet('shared'), 'A')
+    b:send('put', 'B')
+    CHECK_EQ(b:waitEvent({name='done'}).data, '1:0')
+    CHECK_EQ(ctx:gaGet('shared'), 'B')
+    CHECK_EQ(ctx:releaseGaReplies(), 1)
+    CHECK_EQ(a:waitEvent({name='done'}).data, '1:0')
+    CHECK_EQ(ctx:gaGet('shared'), 'B')
+    other:holdGaReplies('MsGASet')
+    b:send('put', 'C')
+    deadline = b:now() + 0.5
+    while other:gaReplyState().held == 0 and b:now() < deadline do b:waitEvent({name='none',timeout=0.005}) end
+    REQUIRE_EQ(other:dropGaReplies(), 1)
+    CHECK_EQ(b:waitEvent({name='done',timeout=0.01}), nil)
+    CHECK_EQ(ctx:gaGet('shared'), 'C')
+    CHECK(other:close())
+    CHECK_EQ(other:close(), false)
+    a:send('echo', 'alive')
+    CHECK_EQ(a:waitEvent({name='echo'}).data, 'alive')
+    local third = ctx:createRoom()
+    CHECK_EQ(third:gaGet('shared'), 'C')
+    -- 子房间不显式关闭，由用例统一回收。
+end)
+TEST_CASE('separate invocation', function(ctx) CHECK_EQ(ctx:gaGet('shared'), nil) end)
+TEST_CASE('unsupported propagates', '[no-ga]', function(ctx)
+    local other = ctx:createRoom()
+    CHECK_EQ(pcall(function() other:gaGet('shared') end), false)
+end)
+"#,
+    );
+    let (output, report) = run_json(&[
+        "test",
+        project.tests.to_str().unwrap(),
+        "--jobs",
+        "3",
+        "--reporter",
+        "json",
+    ]);
+    assert!(output.status.success(), "{report}");
+    assert_eq!(report["summary"]["test_cases"]["passed"], 3);
+}
+
+#[test]
+fn multi_room_failure_reports_child_and_cleans_up() {
+    let project = TestProject::with_main(
+        r#"
+RegisterEvent('crash', function() MsEnd(-1, 'child boom') end)
+"#,
+        r#"
+TEST_CASE('child error', function(ctx)
+    local other = ctx:createRoom()
+    local client = other:client(0)
+    client:send('crash', '')
+    client:waitEvent({name='none',timeout=0.1})
+end)
+"#,
+    );
+    let (output, report) = run_json(&[
+        "test",
+        project.tests.to_str().unwrap(),
+        "--reporter",
+        "json",
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(report.to_string().contains("child boom"), "{report}");
+    assert!(
+        !report.to_string().contains("ROOM_SHUTDOWN_TIMEOUT"),
+        "{report}"
+    );
+}
+
+#[test]
+fn multi_room_startup_failure_and_fatal_assertion_are_reclaimed() {
+    let project = TestProject::with_main(
+        "if MsGetPlayerName(0) == 'BadChild' then error('child startup failure') end\n",
+        r#"
+TEST_CASE('bad child startup', function(ctx)
+    ctx:createRoom({players={{index=0,name='BadChild'}}})
+end)
+TEST_CASE('assertion after child creation', function(ctx)
+    ctx:createRoom()
+    REQUIRE(false)
+end)
+"#,
+    );
+    let (output, report) = run_json(&[
+        "test",
+        project.tests.to_str().unwrap(),
+        "--jobs",
+        "2",
+        "--reporter",
+        "json",
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(report["summary"]["test_cases"]["failed"], 2);
+    assert!(
+        report.to_string().contains("child startup failure"),
+        "{report}"
+    );
+    assert!(
+        !report.to_string().contains("ROOM_SHUTDOWN_TIMEOUT"),
+        "{report}"
+    );
+}

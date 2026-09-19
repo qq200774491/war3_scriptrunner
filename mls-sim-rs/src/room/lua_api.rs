@@ -33,6 +33,7 @@ where
     pub script_dir: PathBuf,
     /// Some 时安装 MsGA* 与 MsBroadcast；None 表示模拟没有全局存档能力的旧平台。
     pub global_archive: Option<SharedGlobalArchive>,
+    pub ga_test_control: Option<Arc<Mutex<super::ga_test_control::GaTestControl>>>,
 }
 
 pub(super) fn install_lua_apis<LogFn, OutFn>(
@@ -84,6 +85,7 @@ where
             store,
             ctx.command_tx.clone(),
             ctx.trans_id_counter,
+            ctx.ga_test_control,
         )?;
     }
     install_require(lua, ctx.script_dir)?;
@@ -97,6 +99,7 @@ fn install_global_archive_api(
     store: SharedGlobalArchive,
     command_tx: CommandSender,
     trans_id_counter: Arc<AtomicI32>,
+    test_control: Option<Arc<Mutex<super::ga_test_control::GaTestControl>>>,
 ) -> LuaResult<()> {
     fn lua_table_to_string_pairs(table: &LuaTable) -> LuaResult<Vec<(String, String)>> {
         let mut pairs = Vec::new();
@@ -142,6 +145,7 @@ fn install_global_archive_api(
             let command_tx = command_tx.clone();
             let trans_id_counter = trans_id_counter.clone();
             let callbacks = callbacks.clone();
+            let test_control = test_control.clone();
             lua.globals().set(
                 $name,
                 lua.create_function(move |_, ($($arg,)* callback): ($($ty,)* Option<LuaFunction>)| {
@@ -153,7 +157,13 @@ fn install_global_archive_api(
                     }
                     let mut store = store.lock().unwrap();
                     let outcome = store.execute($name, args);
-                    store.deliver_reply(&command_tx, $name, trans_id, outcome);
+                    let outcome = match &test_control {
+                        Some(control) => control.lock().unwrap().intercept($name, trans_id, outcome),
+                        None => Some(outcome),
+                    };
+                    if let Some(outcome) = outcome {
+                        store.deliver_reply(&command_tx, $name, trans_id, outcome);
+                    }
                     // cb 模式的返回值未被文档保证，故返回 nil，防止业务误依赖。
                     Ok(if has_callback { None } else { Some(trans_id) })
                 })?,

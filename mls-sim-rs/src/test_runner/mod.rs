@@ -1,3 +1,4 @@
+mod rooms;
 use crate::config::{self, AutoRoomConfig, PlayerConfig, ReporterKind, TestArgs};
 use crate::room::{
     LogEntry, OutEvent, RoomExecutionControl, RoomLaunchOptions, RoomManager, RoomStatus,
@@ -1456,6 +1457,9 @@ fn run_invocation(
             persist_archives_to_disk: false,
             // 由本用例独立的 RoomManager 按 script_dir 分配，用例之间互不可见。
             global_archive: None,
+            ga_test_control: Some(Arc::new(Mutex::new(
+                crate::room::ga_test_control::GaTestControl::default(),
+            ))),
         },
     );
 
@@ -1502,6 +1506,14 @@ fn run_invocation(
 
     let case_deadline = Instant::now() + seconds(suite.timeouts.case);
     control.set_deadline(case_deadline);
+    let group = Arc::new(rooms::TestRooms {
+        suite: suite.clone(),
+        config: auto_config,
+        archive: archive_dir.clone(),
+        clock: TestClock::start(),
+        records: Mutex::new(vec![(room_id.clone(), control.clone())]),
+        closed: Mutex::new(HashSet::new()),
+    });
     let state = if early_failures.is_empty() {
         match execute_case_in_test_vm(
             suite,
@@ -1510,6 +1522,7 @@ fn run_invocation(
             manager.clone(),
             room_id.clone(),
             case_deadline,
+            group.clone(),
         ) {
             Ok(state) => state,
             Err(error) => {
@@ -1537,43 +1550,57 @@ fn run_invocation(
         Arc::new(Mutex::new(state))
     };
 
-    if let Some(message) = room_failure_after_case(&manager, &room_id) {
-        let mut state = state.lock().unwrap();
-        let context = state.info.clone();
-        state.failures.push(FailureRecord {
-            kind: "ROOM_STOPPED".into(),
-            source: case.source.clone(),
-            line: case.line,
-            message,
-            actual: None,
-            expected: None,
-            context,
-        });
-    }
-
-    let mut logs = Vec::new();
-    {
-        let state_guard = state.lock().unwrap();
-        if !state_guard.failures.is_empty() {
-            logs = cloud_log_tail(&manager, &room_id, log_tail);
+    let records = group.records.lock().unwrap().clone();
+    for (id, _) in &records {
+        if group.closed.lock().unwrap().contains(id) {
+            continue;
+        }
+        if let Some(message) = room_failure_after_case(&manager, id) {
+            let mut state = state.lock().unwrap();
+            let context = state.info.clone();
+            state.failures.push(FailureRecord {
+                kind: "ROOM_STOPPED".into(),
+                source: case.source.clone(),
+                line: case.line,
+                message: format!("{id}: {message}"),
+                actual: None,
+                expected: None,
+                context,
+            });
         }
     }
-
-    control.cancel();
-    let shutdown_ok = manager
-        .lock()
-        .unwrap()
-        .destroy_room_and_wait(&room_id, seconds(suite.timeouts.shutdown));
-    if !shutdown_ok {
-        state.lock().unwrap().failures.push(FailureRecord {
-            kind: "ROOM_SHUTDOWN_TIMEOUT".into(),
-            source: case.source.clone(),
-            line: case.line,
-            message: "cloud room did not stop within shutdown timeout".into(),
-            actual: None,
-            expected: None,
-            context: Vec::new(),
-        });
+    let mut logs = Vec::new();
+    if !state.lock().unwrap().failures.is_empty() {
+        for (id, _) in &records {
+            for mut log in cloud_log_tail(&manager, id, log_tail) {
+                log.source = format!("{id}/{}", log.source);
+                logs.push(log);
+            }
+        }
+    }
+    // 先取消全部 VM，再逐一等待，失败/断言中止也不能留下子房间。
+    for (_, control) in &records {
+        control.cancel();
+    }
+    for (id, _) in &records {
+        if group.closed.lock().unwrap().contains(id) {
+            continue;
+        }
+        let stopped = manager
+            .lock()
+            .unwrap()
+            .destroy_room_and_wait(id, seconds(suite.timeouts.shutdown));
+        if !stopped {
+            state.lock().unwrap().failures.push(FailureRecord {
+                kind: "ROOM_SHUTDOWN_TIMEOUT".into(),
+                source: case.source.clone(),
+                line: case.line,
+                message: format!("{id}: cloud room did not stop within shutdown timeout"),
+                actual: None,
+                expected: None,
+                context: Vec::new(),
+            });
+        }
     }
 
     let state = Arc::try_unwrap(state)
@@ -1677,6 +1704,7 @@ fn execute_case_in_test_vm(
     manager: Arc<Mutex<RoomManager>>,
     room_id: String,
     deadline: Instant,
+    group: Arc<rooms::TestRooms>,
 ) -> RunnerResult<Arc<Mutex<RuntimeState>>> {
     let (lua, state) = create_test_lua(&suite.test_dir, deadline, selected_sections)?;
     for file in &suite.test_files {
@@ -1703,6 +1731,7 @@ fn execute_case_in_test_vm(
         client_state,
         deadline,
         seconds(suite.timeouts.event),
+        group,
     )?;
     let run_case: LuaFunction = lua
         .globals()
@@ -1739,11 +1768,12 @@ fn create_test_context(
     client_state: Arc<Mutex<ClientState>>,
     deadline: Instant,
     event_timeout: Duration,
+    group: Arc<rooms::TestRooms>,
 ) -> RunnerResult<LuaTable> {
     let context = lua.create_table().map_err(lua_error)?;
     let cache = lua.create_table().map_err(lua_error)?;
     let cache_key = lua.create_registry_value(cache).map_err(lua_error)?;
-    let clock = TestClock::start();
+    let clock = group.clock;
 
     let client_manager = manager.clone();
     let client_room_id = room_id.clone();
@@ -1826,6 +1856,15 @@ fn create_test_context(
         room_id.clone(),
         deadline,
         LifecycleAction::Exit,
+    )?;
+    rooms::install(
+        lua,
+        &context,
+        manager.clone(),
+        room_id.clone(),
+        group,
+        deadline,
+        event_timeout,
     )?;
     install_global_archive_methods(lua, &context, manager, room_id)?;
     Ok(context)
