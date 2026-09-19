@@ -1147,9 +1147,33 @@ fn install_require(lua: &Lua, script_dir: PathBuf) -> LuaResult<()> {
 
 fn truncate_log(msg: String) -> String {
     if msg.len() > MAX_LOG_LEN {
-        msg[..MAX_LOG_LEN].to_string()
+        // 日志上限按字节计算，截断点必须退到完整字符边界。
+        let mut end = MAX_LOG_LEN;
+        while !msg.is_char_boundary(end) {
+            end -= 1;
+        }
+        msg[..end].to_string()
     } else {
         msg
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{truncate_log, MAX_LOG_LEN};
+
+    #[test]
+    fn truncate_log_preserves_utf8_boundaries() {
+        assert_eq!(truncate_log("短日志".to_string()), "短日志");
+        assert_eq!(truncate_log("a".repeat(MAX_LOG_LEN + 1)).len(), MAX_LOG_LEN);
+        for character in ["键", "😀"] {
+            for remaining in 1..character.len() {
+                let prefix = "a".repeat(MAX_LOG_LEN - remaining);
+                assert_eq!(truncate_log(format!("{prefix}{character}")), prefix);
+            }
+            let exact = format!("{}键", "a".repeat(MAX_LOG_LEN - 3));
+            assert_eq!(truncate_log(format!("{exact}尾")), exact);
+        }
     }
 }
 
