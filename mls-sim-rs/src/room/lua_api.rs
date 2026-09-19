@@ -79,14 +79,19 @@ where
     )?;
     install_md5_api(lua)?;
     if let Some(store) = ctx.global_archive {
-        install_global_archive_api(lua, store, ctx.command_tx.clone(), ctx.trans_id_counter)?;
+        install_global_archive_api(
+            lua,
+            store,
+            ctx.command_tx.clone(),
+            ctx.trans_id_counter,
+        )?;
     }
     install_require(lua, ctx.script_dir)?;
     Ok(())
 }
 
-// 全局存档：每个 API 立即返回 trans_id，结果经房间命令队列异步投递 `_msga_reply`；
-// 绝不在调用栈内同步回调，否则"先调用再登记 pending"的生产写法在模拟器里永远正确、真机上却可能失败。
+// 全局存档：结果经房间命令队列异步投递，由平台封装层分派给可选的末参 cb。
+// 不在原生调用栈内同步通知业务，保持平台的异步契约。
 fn install_global_archive_api(
     lua: &Lua,
     store: SharedGlobalArchive,
@@ -110,20 +115,47 @@ fn install_global_archive_api(
         Ok(list)
     }
 
+    // 模拟平台封装层：按事务号转交已解码对象，调用前移除回调，避免重复通知。
+    let callbacks = lua.create_table()?;
+    let reply_callbacks = callbacks.clone();
+    let handler = lua.create_function(
+        move |lua, (_event_id, _event_name, payload, _player): (i32, String, String, i32)| {
+            let json: LuaTable = lua.globals().get("json")?;
+            let decode: LuaFunction = json.get("decode")?;
+            let message: LuaTable = decode.call(payload)?;
+            let trans_id: i32 = message.get("trans_id")?;
+            let callback: Option<LuaFunction> = reply_callbacks.raw_get(trans_id)?;
+            if let Some(callback) = callback {
+                reply_callbacks.raw_set(trans_id, LuaValue::Nil)?;
+                callback.call::<()>(message)?;
+            }
+            Ok(())
+        },
+    )?;
+    lua.globals()
+        .get::<LuaFunction>("RegisterEvent")?
+        .call::<i32>(("_msga_reply", handler))?;
+
     macro_rules! ga_api {
         ($name:expr, |$($arg:ident : $ty:ty),*| $build:expr) => {{
             let store = store.clone();
             let command_tx = command_tx.clone();
             let trans_id_counter = trans_id_counter.clone();
+            let callbacks = callbacks.clone();
             lua.globals().set(
                 $name,
-                lua.create_function(move |_, ($($arg,)*): ($($ty,)*)| {
+                lua.create_function(move |_, ($($arg,)* callback): ($($ty,)* Option<LuaFunction>)| {
                     let trans_id = trans_id_counter.fetch_add(1, Ordering::Relaxed) + 1;
                     let args = $build;
+                    let has_callback = callback.is_some();
+                    if let Some(callback) = callback {
+                        callbacks.raw_set(trans_id, callback)?;
+                    }
                     let mut store = store.lock().unwrap();
                     let outcome = store.execute($name, args);
                     store.deliver_reply(&command_tx, $name, trans_id, outcome);
-                    Ok(trans_id)
+                    // cb 模式的返回值未被文档保证，故返回 nil，防止业务误依赖。
+                    Ok(if has_callback { None } else { Some(trans_id) })
                 })?,
             )?;
         }};

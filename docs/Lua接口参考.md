@@ -267,7 +267,7 @@ local value = MsGetCfgArchive(player_index, "global_config")  -- 返回 string �
 
 ## 全局存档与地图广播（Beta）
 
-对应平台 [API_GA.md](https://gitee.com/dzpt/mls/blob/master/API_GA.md)。同一进程内、同一脚本目录的所有房间共享一份全局存档并互相收到广播，对应平台的 `map_id` 级共享；数据只保存在内存中，进程退出即丢失。
+对应平台 [API_GA-cb.md](https://gitee.com/dzpt/mls/blob/master/API_GA-cb.md)；同时提供平台事件版调用。同一进程内、同一脚本目录的所有房间共享一份全局存档并互相收到广播，对应平台的 `map_id` 级共享；数据只保存在内存中，进程退出即丢失。
 
 `config.json` 的 `auto_room.global_archive_api` 或测试清单 `room.global_archive_api` 设为 `false` 时，下列全局函数**不存在**，用于模拟尚未提供该能力的平台环境。
 
@@ -290,11 +290,12 @@ local tid = MsGALockRelease("boss_settle:1")       -- data = {ok = true}；裸�
 MsBroadcast("boss_dead", json.encode({boss_id = 1}))   -- 无返回值
 ```
 
-所有存档 / 锁 API 立即返回 `trans_id`，结果**始终异步**经 `_msga_reply` 回调，沿用 `RegisterEvent` 的四参数签名：
+所有存档 / 锁 API 支持可选末参 cb，接收已解码对象，始终异步调用。模拟器在 cb 模式返回 nil（平台文档未保证其返回值），不传 cb 时返回事务编号并可通过事件版接收结果。使用 cb 的业务不要再注册 `_msga_reply`，内部封装负责解码与分派；同一回调在调用前移除。
 
 ```lua
-RegisterEvent("_msga_reply", function(eventId, eventName, eventData, playerIndex)
-    local msg = json.decode(eventData)   -- {errnu = 0, op = "MsGAGet", trans_id = 1, data = {...}}
+MsGAGet("cur_boss", function(msg)
+    -- {errnu = 0, op = "MsGAGet", trans_id = 1, data = {value = "dragon"}}
+    if msg.errnu == 0 then Log.Info(msg.data.value) end
 end)
 
 RegisterEvent("_msbroadcast", function(eventId, eventName, eventData, playerIndex)
