@@ -106,7 +106,7 @@ impl Draft {
         ui.add_space(7.0);
         egui::Frame::none()
             .fill(p.panel)
-            .stroke(egui::Stroke::new(1.0, p.border))
+            .stroke(egui::Stroke::new(1.0_f32, p.border))
             .rounding(5.0)
             .inner_margin(14.0)
             .show(ui, |ui| {

@@ -91,15 +91,15 @@ impl Theme {
         style.visuals.extreme_bg_color = p.canvas;
         style.visuals.override_text_color = Some(p.text);
         style.visuals.selection.bg_fill = p.selected;
-        style.visuals.selection.stroke = egui::Stroke::new(1.0, p.accent);
+        style.visuals.selection.stroke = egui::Stroke::new(1.0_f32, p.accent);
         for visuals in [
             &mut style.visuals.widgets.inactive,
             &mut style.visuals.widgets.hovered,
             &mut style.visuals.widgets.active,
         ] {
             visuals.rounding = egui::Rounding::same(4.0);
-            visuals.bg_stroke = egui::Stroke::new(1.0, p.border);
-            visuals.fg_stroke = egui::Stroke::new(1.0, p.text);
+            visuals.bg_stroke = egui::Stroke::new(1.0_f32, p.border);
+            visuals.fg_stroke = egui::Stroke::new(1.0_f32, p.text);
         }
         style.visuals.widgets.inactive.bg_fill = p.raised;
         style.visuals.widgets.inactive.weak_bg_fill = p.raised;
@@ -107,8 +107,8 @@ impl Theme {
         style.visuals.widgets.hovered.weak_bg_fill = p.selected;
         style.visuals.widgets.active.bg_fill = p.selected;
         style.visuals.widgets.active.weak_bg_fill = p.selected;
-        style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, p.divider);
-        style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, p.muted);
+        style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, p.divider);
+        style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, p.muted);
         style.visuals.window_rounding = egui::Rounding::same(6.0);
         style.spacing.item_spacing = egui::vec2(8.0, 8.0);
         style.spacing.button_padding = egui::vec2(10.0, 5.0);

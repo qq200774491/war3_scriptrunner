@@ -7,7 +7,7 @@ local storm_module = ffi.load(config.editor .. '/bin/StormLib.dll')
 require 'filesystem'
 local storm = require 'ffi.stormlib'
 local map = assert(storm.open(fs.path(config.map), false))
-for _, name in ipairs({'main.lua', 'room_profile.lua', 'shared_room.lua', 'room_json.lua', 'room_transport.lua'}) do
+for _, name in ipairs({'main.lua', 'room_profile.lua', 'shared_room.lua', 'room_client.lua', 'room_events.lua', 'room_json.lua', 'room_transport.lua'}) do
     assert(map:add_file(name, fs.path(config.files .. '/' .. name)), name)
 end
 map:close()

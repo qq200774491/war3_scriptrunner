@@ -118,7 +118,7 @@ pub fn edges(ctx: &egui::Context, palette: Palette) {
         ),
     ]);
     ctx.layer_painter(LayerId::new(Order::Foreground, Id::new("window_border")))
-        .rect_stroke(rect.shrink(0.5), 0.0, Stroke::new(1.0, palette.border));
+        .rect_stroke(rect.shrink(0.5), 0.0, Stroke::new(1.0_f32, palette.border));
     for (index, (region, direction, cursor)) in hits.into_iter().enumerate() {
         egui::Area::new(Id::new(("resize", index)))
             .order(Order::Foreground)

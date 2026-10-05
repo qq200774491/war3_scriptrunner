@@ -112,7 +112,7 @@ async def main(args):
         destination = folder / 'shared-room-test.w3x'
         shutil.copyfile(source, destination)
         copy_changed(args.editor / 'plugin/warcraft3/yd_loader.dll', folder / 'yd_loader.dll')
-        for name in ('shared_room.lua', 'room_json.lua', 'room_transport.lua'):
+        for name in ('shared_room.lua', 'room_client.lua', 'room_events.lua', 'room_json.lua', 'room_transport.lua'):
             shutil.copyfile(ROOT / 'map' / name, folder / name)
         shutil.copyfile(ROOT / 'map/demo_main.lua', folder / 'main.lua')
         profiles = []

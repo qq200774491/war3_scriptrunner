@@ -18,6 +18,7 @@ use std::{
 use tokio::{
     process::Command,
     sync::{mpsc, watch},
+    task::JoinHandle,
     time::Instant,
 };
 
@@ -364,15 +365,32 @@ async fn launch_client(
     GameMonitor::start(&mut helper, errors).await
 }
 
+#[derive(Clone, Copy)]
+enum QuicktestSignal {
+    Ready,
+    Started,
+    Failed,
+}
+impl QuicktestSignal {
+    fn signaled(self, room: &str) -> Result<bool> {
+        let suffix = match self {
+            Self::Ready => "ready",
+            Self::Started => "started",
+            Self::Failed => "failed",
+        };
+        platform::event_signaled(&format!("Local\\SharedScriptQuicktest-{room}-{suffix}"))
+    }
+}
+
 async fn wait_host(room: &str, seconds: f64, host: &mut GameMonitor) -> Result<()> {
     let start = Instant::now();
     loop {
         ensure_game_running(host, 0).await?;
         anyhow::ensure!(
-            !platform::event_signaled(&format!("Local\\SharedScriptQuicktest-{room}-failed"))?,
+            !QuicktestSignal::Failed.signaled(room)?,
             "房主报告启动失败，请检查 quicktest-0.log"
         );
-        if platform::event_signaled(&format!("Local\\SharedScriptQuicktest-{room}-ready"))? {
+        if QuicktestSignal::Ready.signaled(room)? {
             return Ok(());
         }
         anyhow::ensure!(start.elapsed().as_secs_f64() < seconds, "房主启动超时");
@@ -388,114 +406,138 @@ async fn ensure_game_running(client: &mut GameMonitor, player: usize) -> Result<
     Ok(())
 }
 
-pub async fn run(
-    root: PathBuf,
-    config: Config,
-    mut stop: watch::Receiver<bool>,
-    output: mpsc::Sender<String>,
-) -> Result<()> {
-    let folder = root.join("build/game");
-    fs::create_dir_all(&folder)?;
-    let _lock = platform::launch_lock(&folder.join(".project-launch.lock"))?;
-    let roots = root.clone();
-    let settings = config.clone();
-    let (inis, staged) = tokio::task::spawn_blocking(move || prepare(&roots, &settings)).await??;
-    if *stop.borrow() {
-        return Ok(());
+struct RunLog {
+    path: PathBuf,
+    sender: mpsc::Sender<String>,
+    task: JoinHandle<std::io::Result<()>>,
+}
+impl RunLog {
+    fn start(folder: &Path, output: mpsc::Sender<String>) -> Result<Self> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let path = folder.join(format!("cloud-rust-{timestamp}.log"));
+        let mut file = fs::File::create(&path)?;
+        let (sender, mut receive) = mpsc::channel::<String>(2048);
+        let task = tokio::spawn(async move {
+            while let Some(line) = receive.recv().await {
+                writeln!(file, "{line}")?;
+                file.flush()?;
+                let _ = output.try_send(line);
+            }
+            Ok(())
+        });
+        Ok(Self { path, sender, task })
     }
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-    let logfile = folder.join(format!("cloud-rust-{timestamp}.log"));
-    let file = fs::File::create(&logfile)?;
-    let (logs, mut log_rx) = mpsc::channel::<String>(2048);
-    let logger = tokio::spawn(async move {
-        let mut file = file;
-        while let Some(line) = log_rx.recv().await {
-            writeln!(file, "{line}")?;
-            file.flush()?;
-            let _ = output.try_send(line);
+    async fn finish(self) -> Result<()> {
+        drop(self.sender);
+        self.task.await??;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum LaunchPhase {
+    WaitingForLan,
+    LanStarted,
+}
+impl LaunchPhase {
+    fn observe(&mut self, started: bool) {
+        if started {
+            *self = Self::LanStarted;
         }
-        Ok::<(), std::io::Error>(())
-    });
-    let room = Room::start(
-        HostConfig {
-            executable: root.join("build/Release/script_host.exe"),
-            dll: root.join("scriptrunner.dll"),
-            scripts: config.cloud_scripts.clone(),
-            archives: config.archives.clone(),
-        },
-        Some(0),
-        logs.clone(),
-    )
-    .await?;
-    let room_id = room.profiles[0].room.clone();
-    let _ = logs
-        .send(format!(
-            "[房间] {room_id}\n[云脚本] {}\n[存档] {}\n[共用魔兽] {}\n[控制台] {}",
-            config.cloud_scripts.display(),
-            config.archives.display(),
-            config.game.display(),
-            logfile.display()
-        ))
-        .await;
-    let mut pids = Vec::new();
-    let mut clients = Vec::new();
-    let result = async {
-        install_entry(&root, &config, &room)?;
+    }
+}
+
+// 这一轮客户端监测与启动阶段由同一所有者维护；服务停止后游戏继续运行。
+struct GameSession<'a> {
+    root: &'a Path,
+    config: &'a Config,
+    room: &'a Room,
+    clients: Vec<GameMonitor>,
+    phase: LaunchPhase,
+}
+impl<'a> GameSession<'a> {
+    fn new(root: &'a Path, config: &'a Config, room: &'a Room) -> Self {
+        Self {
+            root,
+            config,
+            room,
+            clients: Vec::new(),
+            phase: LaunchPhase::WaitingForLan,
+        }
+    }
+
+    async fn start(
+        &mut self,
+        inis: &[PathBuf; 2],
+        staged: &Path,
+        stop: &mut watch::Receiver<bool>,
+        logs: &mpsc::Sender<String>,
+    ) -> Result<()> {
+        install_entry(self.root, self.config, self.room)?;
+        let room_id = &self.room.profiles[0].room;
         for (player, ini) in inis.iter().enumerate() {
+            if *stop.borrow() {
+                return Ok(());
+            }
             if player == 1 {
                 tokio::select! {
-                    result = wait_host(&room_id, config.startup_timeout, &mut clients[0]) => result?,
+                    result = wait_host(room_id, self.config.startup_timeout, &mut self.clients[0]) => result?,
                     _ = stop.changed() => return Ok(()),
                 }
             }
             if *stop.borrow() {
                 return Ok(());
             }
-            let client = launch_client(&root, &config, &staged, ini, &room_id, player).await?;
+            let client =
+                launch_client(self.root, self.config, staged, ini, room_id, player).await?;
             let pid = client.pid;
-            clients.push(client);
-            pids.push(pid);
+            self.clients.push(client);
             logs.send(format!(
                 "[启动] 玩家 {player} PID {pid}；INI {}",
                 ini.display()
             ))
             .await?;
         }
+        Ok(())
+    }
+
+    async fn monitor(
+        &mut self,
+        stop: &mut watch::Receiver<bool>,
+        logs: &mpsc::Sender<String>,
+    ) -> Result<()> {
+        let folder = self.root.join("build/game");
+        let room_id = &self.room.profiles[0].room;
         let start = Instant::now();
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         let mut previous = [String::new(), String::new()];
         let mut report = Instant::now();
-        loop {
+        while !*stop.borrow() {
             tokio::select! { _ = stop.changed() => break, _ = tick.tick() => {} }
-            if *stop.borrow() || start.elapsed().as_secs() >= config.seconds {
+            if *stop.borrow() || start.elapsed().as_secs() >= self.config.seconds {
                 break;
             }
-            let status = room.status.borrow().clone();
-            anyhow::ensure!(
-                status.failure.is_none(),
-                "{}",
-                status.failure.unwrap_or_default()
-            );
-            for (player, old) in previous.iter_mut().enumerate() {
-                let bytes = fs::read(folder.join(format!("quicktest-{player}.log")))?;
-                let text = String::from_utf8_lossy(&bytes).into_owned();
-                if text != *old {
-                    let new = text.strip_prefix(old.as_str()).unwrap_or(&text);
-                    logs.send(new.trim_end().into()).await?;
-                    *old = text;
-                }
-                anyhow::ensure!(!old.contains("FAILED "), "玩家 {player} 启动失败");
+            let status = self.room.status.borrow().clone();
+            if let Some(reason) = &status.failure {
+                anyhow::bail!("{reason}");
             }
-            if !previous[0].contains("START_GAME players=2") {
-                for (player, client) in clients.iter_mut().enumerate() {
+            anyhow::ensure!(
+                !QuicktestSignal::Failed.signaled(room_id)?,
+                "房主报告启动失败，请检查 quicktest-0.log"
+            );
+            self.phase
+                .observe(QuicktestSignal::Started.signaled(room_id)?);
+            if self.phase == LaunchPhase::WaitingForLan {
+                for (player, client) in self.clients.iter_mut().enumerate() {
                     ensure_game_running(client, player).await?;
                 }
+                anyhow::ensure!(
+                    start.elapsed().as_secs_f64() < self.config.startup_timeout,
+                    "双人开局超时，请检查 quicktest 日志"
+                );
             }
-            anyhow::ensure!(
-                previous[0].contains("START_GAME players=2")
-                    || start.elapsed().as_secs_f64() < config.startup_timeout,
-                "双人开局超时，请检查 quicktest 日志"
-            );
+            forward_game_logs(&folder, &mut previous, logs).await?;
             if report.elapsed() >= Duration::from_secs(10) {
                 logs.send(format!(
                     "[运行] 在线 {}/2；回包 {}；云端 {}",
@@ -513,18 +555,131 @@ pub async fn run(
         }
         Ok(())
     }
+
+    fn finish(self) -> Vec<u32> {
+        self.clients
+            .into_iter()
+            .map(|client| {
+                let pid = client.pid;
+                client.detach();
+                pid
+            })
+            .collect()
+    }
+}
+
+async fn forward_game_logs(
+    folder: &Path,
+    previous: &mut [String; 2],
+    logs: &mpsc::Sender<String>,
+) -> Result<()> {
+    for (player, old) in previous.iter_mut().enumerate() {
+        let bytes = fs::read(folder.join(format!("quicktest-{player}.log")))?;
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        if text != *old {
+            let new = text.strip_prefix(old.as_str()).unwrap_or(&text);
+            logs.send(new.trim_end().into()).await?;
+            *old = text;
+        }
+    }
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct RunReport<'a> {
+    runtime: &'static str,
+    room: &'a str,
+    game_pids: &'a [u32],
+    phase: LaunchPhase,
+    cloud_callbacks: u64,
+    cloud_failure: Option<String>,
+    error: Option<String>,
+    client_archives: &'a [PathBuf; 2],
+    game: &'a Path,
+    console_log: &'a Path,
+}
+impl RunReport<'_> {
+    fn save(&self, folder: &Path) -> Result<()> {
+        archives::atomic_write(
+            &folder.join("project-result-rust.json"),
+            &serde_json::to_vec_pretty(self)?,
+        )
+    }
+}
+
+pub async fn run(
+    root: PathBuf,
+    config: Config,
+    mut stop: watch::Receiver<bool>,
+    output: mpsc::Sender<String>,
+) -> Result<()> {
+    let folder = root.join("build/game");
+    fs::create_dir_all(&folder)?;
+    let _lock = platform::launch_lock(&folder.join(".project-launch.lock"))?;
+    let roots = root.clone();
+    let settings = config.clone();
+    let (inis, staged) = tokio::task::spawn_blocking(move || prepare(&roots, &settings)).await??;
+    if *stop.borrow() {
+        return Ok(());
+    }
+    let log = RunLog::start(&folder, output)?;
+    // 房间建立失败也收尾日志任务，避免 early return 遗留后台工作。
+    let room = match Room::start(
+        HostConfig {
+            executable: root.join("build/Release/script_host.exe"),
+            dll: root.join("scriptrunner.dll"),
+            scripts: config.cloud_scripts.clone(),
+            archives: config.archives.clone(),
+        },
+        Some(0),
+        log.sender.clone(),
+    )
+    .await
+    {
+        Ok(room) => room,
+        Err(error) => {
+            log.finish().await?;
+            return Err(error);
+        }
+    };
+    let room_id = room.profiles[0].room.clone();
+    let _ = log
+        .sender
+        .send(format!(
+            "[房间] {room_id}\n[云脚本] {}\n[存档] {}\n[共用魔兽] {}\n[控制台] {}",
+            config.cloud_scripts.display(),
+            config.archives.display(),
+            config.game.display(),
+            log.path.display()
+        ))
+        .await;
+    let mut session = GameSession::new(&root, &config, &room);
+    let result = async {
+        session
+            .start(&inis, &staged, &mut stop, &log.sender)
+            .await?;
+        session.monitor(&mut stop, &log.sender).await
+    }
     .await;
+    let phase = session.phase;
+    let pids = session.finish();
     let status = room.status.borrow().clone();
     room.close().await;
-    for client in clients {
-        client.detach();
+    let save = RunReport {
+        runtime: "rust",
+        room: &room_id,
+        game_pids: &pids,
+        phase,
+        cloud_callbacks: status.delivery,
+        cloud_failure: status.failure,
+        error: result.as_ref().err().map(|error| format!("{error:#}")),
+        client_archives: &inis,
+        game: &config.game,
+        console_log: &log.path,
     }
-    let summary = serde_json::json!({"runtime":"rust","room":room_id,"game_pids":pids,"cloud_callbacks":status.delivery,"cloud_failure":status.failure,"error":result.as_ref().err().map(|e:&anyhow::Error|format!("{e:#}")),"client_archives":inis,"game":config.game,"console_log":logfile});
-    let save = archives::atomic_write(
-        &folder.join("project-result-rust.json"),
-        &serde_json::to_vec_pretty(&summary)?,
-    );
-    let _ = logs
+    .save(&folder);
+    let _ = log
+        .sender
         .send(format!(
             "[停止] {}",
             result
@@ -534,8 +689,7 @@ pub async fn run(
                 .unwrap_or_else(|| "云服务已停止".into())
         ))
         .await;
-    drop(logs);
-    let logged = logger.await?;
+    let logged = log.finish().await;
     save?;
     logged?;
     result
@@ -554,5 +708,14 @@ mod tests {
     fn lua_paths_are_byte_exact() {
         assert_eq!(lua("a\\b"), "\"a\\\\b\"");
         assert_eq!(lua("中"), "\"\\228\\184\\173\"");
+    }
+    #[test]
+    fn game_started_phase_does_not_depend_on_log_text_or_signal_lifetime() {
+        let mut phase = LaunchPhase::WaitingForLan;
+        phase.observe(false);
+        assert_eq!(phase, LaunchPhase::WaitingForLan);
+        phase.observe(true);
+        phase.observe(false);
+        assert_eq!(phase, LaunchPhase::LanStarted);
     }
 }

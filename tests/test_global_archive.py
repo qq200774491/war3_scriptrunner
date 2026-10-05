@@ -56,40 +56,7 @@ class GlobalNativeTests(unittest.IsolatedAsyncioTestCase):
     async def test_original_dll_async_hash_lock_and_broadcast(self):
         with tempfile.TemporaryDirectory() as folder:
             folder = Path(folder)
-            (folder / 'main.lua').write_text('''
-local finished = false
-RegisterEvent('_msbroadcast', function(_, _, payload)
-    local message = json.decode(payload)
-    assert(message.key == 'notice' and message.value == '完成')
-    finished = true
-    MsSendMlEvent(0, 'passed', 'global native chain')
-end)
-local returned = false
-local tid = MsGALockAcquire('lock', 1000, function(reply)
-    assert(returned and reply.errnu == 0 and reply.data.ok)
-    MsGALockAcquire('lock', 1000, function(blocked)
-        assert(blocked.errnu == 0 and not blocked.data.ok)
-        MsGAHmSet('hash', {owner='玩家一', other='2'}, function(saved)
-            assert(saved.errnu == 0 and saved.data.value == 2)
-            MsGAHmGet('hash', {'owner', 'absent'}, function(read)
-                assert(read.errnu == 0 and read.data.value.owner == '玩家一' and not read.data.value.absent)
-                MsGAHGetAll('hash', function(all)
-                    assert(all.errnu == 0 and all.data.value.other == '2')
-                    MsGAHDel('hash', {'other'}, function(deleted)
-                        assert(deleted.errnu == 0 and deleted.data.value == 1)
-                        MsGALockRelease('lock', function(released)
-                            assert(released.errnu == 0 and released.data.ok)
-                            MsBroadcast('notice', '完成')
-                        end)
-                    end)
-                end)
-            end)
-        end)
-    end)
-end)
-assert(type(tid) == 'number')
-returned = true
-''', encoding='utf-8')
+            (folder / 'main.lua').write_bytes((ROOT / 'tests/scripts/global/main.lua').read_bytes())
             events = []
             host = NativeHost(ROOT / 'build/Release/script_host.exe', ROOT / 'scriptrunner.dll',
                               folder, (0, 1), events.append, archives=folder / 'state')

@@ -1,6 +1,7 @@
 #pragma once
 #include <Windows.h>
 #include <string>
+#include <string_view>
 
 namespace quicktest {
 struct Options {
@@ -24,14 +25,16 @@ public:
     const Options& options() const { return options_; }
     void ready();
     void check_ready() const;
+    void game_started();
     void close_events();
     void log(const std::string& message) const;
-    void report_failure(const std::string& message) const;
-    [[noreturn]] void fail(const std::string& message) const;
+    void report_failure(std::string_view message) const noexcept;
+    [[noreturn]] void fail(std::string_view message) const noexcept;
 private:
     Options options_;
     HANDLE ready_ = nullptr;
     HANDLE failed_ = nullptr;
+    HANDLE started_ = nullptr;
     bool ready_announced_ = false;
 };
 }

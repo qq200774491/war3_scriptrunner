@@ -18,8 +18,8 @@ local function create(player)
         TriggerAddAction = function(_, action) state.action = action end,
         CreateTimer = function() return {} end,
         TimerStart = function(_, _, _, callback) state.tick = callback end,
-        DestroyTimer = function() state.timer_closed = true end,
-        DestroyTrigger = function() state.trigger_closed = true end,
+        DestroyTimer = function() state.timer_closed = (state.timer_closed or 0) + 1 end,
+        DestroyTrigger = function() state.trigger_closed = (state.trigger_closed or 0) + 1 end,
     }
     local japi = {
         DzTriggerRegisterSyncData = function(_, prefix, server) assert(prefix == 'SRROOM1' and server == false) end,
@@ -78,6 +78,7 @@ for _, client in ipairs(clients) do
     assert(client.ready == 1 and client.gold == 12)
     assert(table.concat(client.events, ',') == '0:7,1:12,0:12')
     client.room.close()
-    assert(client.timer_closed and client.trigger_closed)
+    client.room.close()
+    assert(client.timer_closed == 1 and client.trigger_closed == 1)
 end
 print('ADAPTER_OK 0:7,1:12,0:12 gold=12 both-clients')

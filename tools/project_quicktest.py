@@ -133,16 +133,15 @@ async def run_project(args):
             await asyncio.sleep(1)
             if cloud and cloud.failed:
                 raise RuntimeError('shared cloud room failed: ' + cloud.failed)
+            signals.check_failure()
             for player in (0, 1):
                 current = (folder / f'quicktest-{player}.log').read_text(encoding='utf-8', errors='replace')
                 if current != previous[player]:
                     print(current[len(previous[player]):], end='', flush=True)
                     previous[player] = current
-                if 'FAILED ' in current:
-                    raise RuntimeError(f'client {player} failed; see quicktest-{player}.log')
-            if 'START_GAME players=2' in previous[0]:
+            if signals.started:
                 result['phase'] = 'lan_game_started'
-            elif _ >= args.startup_timeout:
+            if result['phase'] != 'lan_game_started' and _ >= args.startup_timeout:
                 raise TimeoutError('native LAN game did not start before deadline')
             if cloud and cloud.active and _ % 10 == 0:
                 print(f'CLOUD_ACTIVE clients={len(cloud.sessions)} replies={cloud.delivery}', flush=True)

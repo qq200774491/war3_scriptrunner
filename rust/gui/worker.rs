@@ -39,11 +39,41 @@ impl Worker {
         let _ = self.stop.send(true);
     }
     pub fn completed(&self) -> Option<Result<(), String>> {
-        self.finished.try_recv().ok()
+        match self.finished.try_recv() {
+            Ok(result) => Some(result),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Some(Err("后台线程异常退出，未返回执行结果".into()))
+            }
+        }
     }
 }
 impl Drop for Worker {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disconnected_worker_reports_failure_instead_of_remaining_busy() {
+        let (complete, finished) = mpsc::channel();
+        let (_, logs) = async_channel::channel(1);
+        let (stop, _) = watch::channel(false);
+        let worker = Worker {
+            logs,
+            finished,
+            stop,
+        };
+        assert!(worker.completed().is_none());
+        drop(complete);
+        assert!(worker
+            .completed()
+            .unwrap()
+            .unwrap_err()
+            .contains("异常退出"));
     }
 }

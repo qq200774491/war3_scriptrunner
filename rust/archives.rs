@@ -27,7 +27,9 @@ impl Ini {
             anyhow::ensure!(bytes.len().is_multiple_of(2), "INI UTF-16 不完整");
             let little = bytes[0] == 255;
             let chars: Vec<u16> = bytes[2..]
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|c| {
                     if little {
                         u16::from_le_bytes([c[0], c[1]])

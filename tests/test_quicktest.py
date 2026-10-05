@@ -31,6 +31,16 @@ class QuicktestTests(unittest.IsolatedAsyncioTestCase):
                 stdout, stderr = await asyncio.wait_for(join.communicate(), 3)
                 self.assertEqual(join.returncode, 0, stderr)
                 self.assertIn(b'JOIN_READY', stdout)
+                self.assertFalse(signals.started)
+                host.stdin.write(b's')
+                await host.stdin.drain()
+                self.assertEqual(await host.stdout.readline(), b'STARTED\r\n')
+                self.assertTrue(signals.started)
+                host.stdin.write(b'c')
+                await host.stdin.drain()
+                self.assertEqual(await host.stdout.readline(), b'READY_CLOSED\r\n')
+                self.assertTrue(signals.started)
+                self.assertFalse(unrelated.started)
                 with self.assertRaises(TimeoutError):
                     await unrelated.wait(0.1)
             finally:
@@ -114,3 +124,30 @@ class QuicktestTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.wait_for(host.wait(), 3)
                 signals.close()
             self.assertEqual(host.returncode, 0)
+
+    async def test_callback_exception_signals_failure_and_stays_inside_native_boundary(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / 'build') as folder:
+            room = str(uuid.uuid4())
+            map_file = Path(folder) / 'Maps/Test/map.w3x'
+            map_file.parent.mkdir(parents=True)
+            map_file.touch()
+            log = Path(folder) / 'host.log'
+            host = await asyncio.create_subprocess_exec(str(PROBE), '-host', '2', 'Maps/Test/map.w3x',
+                '--qt-room', room, '--qt-player', 'SRPlayer0', '--qt-log', str(log), cwd=folder,
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            signals = HostSignals(room)
+            try:
+                await signals.wait(3)
+                self.assertEqual(await host.stdout.readline(), b'READY\r\n')
+                host.stdin.write(b'e')
+                await host.stdin.drain()
+                await asyncio.wait_for(host.wait(), 3)
+                self.assertEqual(host.returncode, 1)
+                with self.assertRaisesRegex(RuntimeError, 'signaled failure'):
+                    signals.check_failure()
+                self.assertIn('FAILED probe callback failure', log.read_text())
+            finally:
+                if host.returncode is None:
+                    host.stdin.close()
+                    await asyncio.wait_for(host.wait(), 3)
+                signals.close()

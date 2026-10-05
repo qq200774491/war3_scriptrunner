@@ -63,8 +63,9 @@ def command(game, editor, map_path, room, player, log, ini=None):
 class HostSignals:
     """只查询本次 room 的命名事件；不在游戏 DLL 加载锁内等待。"""
     def __init__(self, room):
-        self.names = [f'Local\\SharedScriptQuicktest-{room}-{suffix}' for suffix in ('ready', 'failed')]
-        self.handles = [None, None]
+        self.names = {suffix: f'Local\\SharedScriptQuicktest-{room}-{suffix}'
+                      for suffix in ('ready', 'failed', 'started')}
+        self.handles = {}
         self.kernel = ctypes.WinDLL('kernel32', use_last_error=True)
         self.kernel.OpenEventW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
         self.kernel.OpenEventW.restype = wintypes.HANDLE
@@ -73,22 +74,40 @@ class HostSignals:
         self.kernel.CloseHandle.argtypes = [wintypes.HANDLE]
         self.kernel.CloseHandle.restype = wintypes.BOOL
 
+    def signaled(self, suffix):
+        handle = self.handles.get(suffix)
+        if not handle:
+            handle = self.kernel.OpenEventW(0x100000, False, self.names[suffix])
+            if not handle:
+                error = ctypes.get_last_error()
+                if error == 2:
+                    return False
+                raise ctypes.WinError(error)
+            self.handles[suffix] = handle
+        result = self.kernel.WaitForSingleObject(handle, 0)
+        if result == 0xffffffff:
+            raise ctypes.WinError(ctypes.get_last_error())
+        return result == 0
+
+    def check_failure(self):
+        if self.signaled('failed'):
+            raise RuntimeError('quicktest host signaled failure; inspect quicktest-0.log')
+
+    @property
+    def started(self):
+        self.check_failure()
+        return self.signaled('started')
+
     async def wait(self, timeout):
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
-            for index, name in enumerate(self.names):
-                if not self.handles[index]:
-                    self.handles[index] = self.kernel.OpenEventW(0x100000, False, name)
-            ready, failed = self.handles
-            if failed and self.kernel.WaitForSingleObject(failed, 0) == 0:
-                raise RuntimeError('quicktest host signaled failure; inspect quicktest-0.log')
-            if ready and self.kernel.WaitForSingleObject(ready, 0) == 0:
+            self.check_failure()
+            if self.signaled('ready'):
                 return
             await asyncio.sleep(0.05)
         raise TimeoutError(f'quicktest host was not ready within {timeout}s; inspect quicktest-0.log')
 
     def close(self):
-        for handle in self.handles:
-            if handle:
-                self.kernel.CloseHandle(handle)
-        self.handles = [None, None]
+        for handle in self.handles.values():
+            self.kernel.CloseHandle(handle)
+        self.handles.clear()

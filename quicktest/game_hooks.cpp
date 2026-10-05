@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <detours.h>
 #include "session.hpp"
+#include "callback_boundary.hpp"
 #include "ini_redirect.hpp"
 #include <cstdint>
 #include <stdexcept>
@@ -127,6 +128,7 @@ BOOL(__thiscall* CGameWar3_LoadMapSetup)(uint32_t, uint32_t, uint32_t, uint32_t,
 #pragma endregion
 
 quicktest::Session session;
+
 char player_name[16];
 bool join_pending = true;
 
@@ -138,228 +140,230 @@ bool leave_is_error = false;
 void(__fastcall* real_CGlueMgr_SetGlueScreen)(uint32_t, uint32_t);
 bool host_pending = true;
 constexpr UINT host_menu_warmup_ms = 5000;
-void CALLBACK on_host_menu_ready(HWND, UINT, UINT_PTR timer, DWORD) try {
-    KillTimer(nullptr, timer);
-    session.log("HOST_CREATE_BEGIN");
-    // open map
-    if (!WorldOpenMapArchive(filepath.c_str())) {
-        session.fail("Load map failed");
-    }
+void CALLBACK on_host_menu_ready(HWND, UINT, UINT_PTR timer, DWORD) noexcept {
+    return quicktest::game_callback(session, [&] {
+        KillTimer(nullptr, timer);
+        session.log("HOST_CREATE_BEGIN");
+        // open map
+        if (!WorldOpenMapArchive(filepath.c_str())) {
+            session.fail("Load map failed");
+        }
 
-    // get map info
-    TSGrowableArray<void> players{};
-    if (!WorldGetMapInfo(filepath.c_str(), NULL, &players, NULL, NULL)) {
-        session.fail("Load map info failed");
-    }
+        // get map info
+        TSGrowableArray<void> players{};
+        if (!WorldGetMapInfo(filepath.c_str(), NULL, &players, NULL, NULL)) {
+            session.fail("Load map info failed");
+        }
 
-    // create game
-    NetGlueGameCreate(
-        "quicktest",
-        "quicktest",
-        filepath.c_str(),
-        players.size,
-        players.size,
-        1, // game type
-        2, // game speed
-        DEFAULT_MAP_FLAG,
-        player_name,
-        false,
-        false,
-        false,
-        0
-    );
+        // create game
+        NetGlueGameCreate(
+            "quicktest",
+            "quicktest",
+            filepath.c_str(),
+            players.size,
+            players.size,
+            1, // game type
+            2, // game speed
+            DEFAULT_MAP_FLAG,
+            player_name,
+            false,
+            false,
+            false,
+            0
+        );
 
-    // menu ui
-    auto glue_mgr = CGlueMgr_Get();
-    NetRegisterEvent(0x40090073, 6, glue_mgr->menu, 0);
-    NetRegisterEvent(0x40090073, 6, glue_mgr->menu, 1);
+        // menu ui
+        auto glue_mgr = CGlueMgr_Get();
+        NetRegisterEvent(0x40090073, 6, glue_mgr->menu, 0);
+        NetRegisterEvent(0x40090073, 6, glue_mgr->menu, 1);
 
-    session.log("HOST_LOBBY");
+        session.log("HOST_LOBBY");
 
-    leave_is_error = true;
-
-} catch (const std::exception& error) {
-    session.fail(std::string("host create: ") + error.what());
-} catch (...) {
-    session.fail("unexpected host create exception");
+        leave_is_error = true;
+    });
 }
-void __fastcall fake_CGlueMgr_SetGlueScreen_host(uint32_t a1, uint32_t a2) try {
-    if (a1 == 2 && host_pending) {
-        host_pending = false;
-        NetInitializeProvider('TCPN', 0);
-        real_CGlueMgr_SetGlueScreen(9, 1);
-        // 让初始菜单调用栈先退出，再由同一线程的消息循环发起建房。
-        // 当前地图加载器需要菜单预热；实测仅推迟一个消息循环仍会退出。
-        if (!SetTimer(nullptr, 0, host_menu_warmup_ms, on_host_menu_ready))
-            session.fail("cannot schedule host creation");
-        session.log("HOST_MENU_READY");
-        return;
-    }
-    return real_CGlueMgr_SetGlueScreen(a1, a2);
-} catch (const std::exception& error) {
-    session.fail(std::string("host menu: ") + error.what());
-} catch (...) {
-    session.fail("unexpected host menu exception");
+void __fastcall fake_CGlueMgr_SetGlueScreen_host(uint32_t a1, uint32_t a2) noexcept {
+    return quicktest::game_callback(session, [&] {
+        if (a1 == 2 && host_pending) {
+            host_pending = false;
+            NetInitializeProvider('TCPN', 0);
+            real_CGlueMgr_SetGlueScreen(9, 1);
+            // 让初始菜单调用栈先退出，再由同一线程的消息循环发起建房。
+            // 当前地图加载器需要菜单预热；实测仅推迟一个消息循环仍会退出。
+            if (!SetTimer(nullptr, 0, host_menu_warmup_ms, on_host_menu_ready))
+                session.fail("cannot schedule host creation");
+            session.log("HOST_MENU_READY");
+            return;
+        }
+        return real_CGlueMgr_SetGlueScreen(a1, a2);
+    });
 }
 void(__thiscall* real_CGameChatroom_OnDistFilesOutstanding)(CGameChatroom*, CNetGlueGameSetup::CEventDistFilesOutstanding*);
-void __fastcall fake_CGameChatroom_OnDistFilesOutstanding(CGameChatroom* _this, uint32_t, CNetGlueGameSetup::CEventDistFilesOutstanding* e) {
-    real_CGameChatroom_OnDistFilesOutstanding(_this, e);
-    // 地图配置返回不代表房主已进入房间；文件分发完成后才允许启动加入端。
-    if (e->count == 0) session.ready();
-    if (e->count == 0 && player_count == player_joined) {
-        // start game
-        session.log("START_GAME players=" + std::to_string(player_joined));
-        NetStartGame(_this->session);
-        // cleanup
-        session.close_events();
-        leave_is_error = false;
-    }
+void __fastcall fake_CGameChatroom_OnDistFilesOutstanding(CGameChatroom* _this, uint32_t, CNetGlueGameSetup::CEventDistFilesOutstanding* e) noexcept {
+    return quicktest::game_callback(session, [&] {
+        real_CGameChatroom_OnDistFilesOutstanding(_this, e);
+        // 地图配置返回不代表房主已进入房间；文件分发完成后才允许启动加入端。
+        if (e->count == 0) session.ready();
+        if (e->count == 0 && player_count == player_joined) {
+            // start game
+            session.log("START_GAME players=" + std::to_string(player_joined));
+            NetStartGame(_this->session);
+            session.game_started();
+            // cleanup
+            session.close_events();
+            leave_is_error = false;
+        }
+    });
 }
 void(__thiscall* real_CGameChatroom_OnPlayerJoin)(uint32_t, uint32_t);
-void __fastcall fake_CGameChatroom_OnPlayerJoin(uint32_t a1, uint32_t, uint32_t a2) {
-    real_CGameChatroom_OnPlayerJoin(a1, a2);
-    player_joined++;
-    session.log("PLAYER_JOINED count=" + std::to_string(player_joined));
+void __fastcall fake_CGameChatroom_OnPlayerJoin(uint32_t a1, uint32_t, uint32_t a2) noexcept {
+    return quicktest::game_callback(session, [&] {
+        real_CGameChatroom_OnPlayerJoin(a1, a2);
+        player_joined++;
+        session.log("PLAYER_JOINED count=" + std::to_string(player_joined));
+    });
 }
 uint32_t(__fastcall* real_Net_RandomNumber)(uint32_t);
 uint32_t __fastcall fake_Net_RandomNumber(uint32_t) {
     return 'test';
 }
 BOOL(__thiscall* real_CGameWar3_LoadMapSetup)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
-BOOL __fastcall fake_CGameWar3_LoadMapSetup(uint32_t a1, uint32_t, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) {
-    auto ret = real_CGameWar3_LoadMapSetup(a1, a2, a3, a4, a5);
-    if (!ret) {
-        session.fail("Load map setup failed");
-    }
-    session.log("MAP_SETUP_LOADED");
+BOOL __fastcall fake_CGameWar3_LoadMapSetup(uint32_t a1, uint32_t, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) noexcept {
+    return quicktest::game_callback(session, [&] {
+        auto ret = real_CGameWar3_LoadMapSetup(a1, a2, a3, a4, a5);
+        if (!ret) {
+            session.fail("Load map setup failed");
+        }
+        session.log("MAP_SETUP_LOADED");
 
-    return ret;
+        return ret;
+    });
 }
 void(__fastcall* real_NetLeaveGame)(uint32_t, uint32_t, uint32_t);
-void __fastcall fake_NetLeaveGame(uint32_t a1, uint32_t a2, uint32_t a3) {
-    if (leave_is_error) {
-        // 房间错误或用户取消只结束本轮启动，保留游戏窗口和原生错误提示。
-        leave_is_error = false;
-        session.report_failure("host left lobby before game start");
-    }
-    return real_NetLeaveGame(a1, a2, a3);
+void __fastcall fake_NetLeaveGame(uint32_t a1, uint32_t a2, uint32_t a3) noexcept {
+    return quicktest::game_callback(session, [&] {
+        if (leave_is_error) {
+            // 房间错误或用户取消只结束本轮启动，保留游戏窗口和原生错误提示。
+            leave_is_error = false;
+            session.report_failure("host left lobby before game start");
+        }
+        return real_NetLeaveGame(a1, a2, a3);
+    });
 }
 #pragma endregion
 
 #pragma region join
-void __fastcall fake_CGlueMgr_SetGlueScreen_join(uint32_t a1, uint32_t a2) try {
-    // main menu
-    if (a1 == 2 && join_pending) {
-        join_pending = false;
-        session.log("JOIN_REQUEST");
-        // cleanup
-        session.close_events();
+void __fastcall fake_CGlueMgr_SetGlueScreen_join(uint32_t a1, uint32_t a2) noexcept {
+    return quicktest::game_callback(session, [&] {
+        // main menu
+        if (a1 == 2 && join_pending) {
+            join_pending = false;
+            session.log("JOIN_REQUEST");
+            // cleanup
+            session.close_events();
 
-        // initialize NetProvider
-        NetInitializeProvider('TCPN', 0);
+            // initialize NetProvider
+            NetInitializeProvider('TCPN', 0);
 
-        // set to LAN menu
-        real_CGlueMgr_SetGlueScreen(8, 1);
+            // set to LAN menu
+            real_CGlueMgr_SetGlueScreen(8, 1);
 
-        // construct local server address
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_addr.S_un.S_addr = 0x0100007F; // 127.0.0.1
-        addr.sin_port = 0xE017; // 6112
+            // construct local server address
+            sockaddr_in addr{};
+            addr.sin_family = AF_INET;
+            addr.sin_addr.S_un.S_addr = 0x0100007F; // 127.0.0.1
+            addr.sin_port = 0xE017; // 6112
 
-        // construct raw game data;
-        std::vector<uint8_t> raw_game_data;
+            // construct raw game data;
+            std::vector<uint8_t> raw_game_data;
 
-        // game speed
-        raw_game_data.push_back(2);
-        // map flag
-        raw_game_data.push_back((DEFAULT_MAP_FLAG >> 0) & 0xFF);
-        raw_game_data.push_back((DEFAULT_MAP_FLAG >> 8) & 0xFF);
-        raw_game_data.push_back((DEFAULT_MAP_FLAG >> 16) & 0xFF);
-        raw_game_data.push_back((DEFAULT_MAP_FLAG >> 24) & 0xFF);
+            // game speed
+            raw_game_data.push_back(2);
+            // map flag
+            raw_game_data.push_back((DEFAULT_MAP_FLAG >> 0) & 0xFF);
+            raw_game_data.push_back((DEFAULT_MAP_FLAG >> 8) & 0xFF);
+            raw_game_data.push_back((DEFAULT_MAP_FLAG >> 16) & 0xFF);
+            raw_game_data.push_back((DEFAULT_MAP_FLAG >> 24) & 0xFF);
 
-        // map width (not important)
-        raw_game_data.push_back(0x00);
-        raw_game_data.push_back(0x00);
+            // map width (not important)
+            raw_game_data.push_back(0x00);
+            raw_game_data.push_back(0x00);
 
-        // map height (not important)
-        raw_game_data.push_back(0x00);
-        raw_game_data.push_back(0x00);
+            // map height (not important)
+            raw_game_data.push_back(0x00);
+            raw_game_data.push_back(0x00);
 
-        // CRC (disable CRC check)
-        raw_game_data.push_back(0xFF);
-        raw_game_data.push_back(0xFF);
-        raw_game_data.push_back(0xFF);
-        raw_game_data.push_back(0xFF);
+            // CRC (disable CRC check)
+            raw_game_data.push_back(0xFF);
+            raw_game_data.push_back(0xFF);
+            raw_game_data.push_back(0xFF);
+            raw_game_data.push_back(0xFF);
 
-        // file path (not important)
-        // 区间两端必须来自同一个数组，不能依赖编译器合并字符串字面量。
-        static constexpr uint8_t placeholder[] = "quicktest";
-        raw_game_data.insert(raw_game_data.end(), std::begin(placeholder), std::end(placeholder));
+            // file path (not important)
+            // 区间两端必须来自同一个数组，不能依赖编译器合并字符串字面量。
+            static constexpr uint8_t placeholder[] = "quicktest";
+            raw_game_data.insert(raw_game_data.end(), std::begin(placeholder), std::end(placeholder));
 
-        // host name (not important)
-        raw_game_data.insert(raw_game_data.end(), std::begin(placeholder), std::end(placeholder));
+            // host name (not important)
+            raw_game_data.insert(raw_game_data.end(), std::begin(placeholder), std::end(placeholder));
 
-        // ???
-        raw_game_data.push_back(0);
+            // ???
+            raw_game_data.push_back(0);
 
-        // encode
-        std::vector<uint8_t> game_desc = EncodeGameDesc(raw_game_data);
+            // encode
+            std::vector<uint8_t> game_desc = EncodeGameDesc(raw_game_data);
 
-        // construct game data
-        GAMEDATA game_data{};
-        // game name (not important)
-        strcpy_s(game_data.name, "quicktest");
-        // encoded game data
-        if (game_desc.size() >= sizeof(game_data.desc))
-            throw std::runtime_error("encoded game description exceeds protocol limit");
-        memcpy(game_data.desc, game_desc.data(), game_desc.size());
+            // construct game data
+            GAMEDATA game_data{};
+            // game name (not important)
+            strcpy_s(game_data.name, "quicktest");
+            // encoded game data
+            if (game_desc.size() >= sizeof(game_data.desc))
+                throw std::runtime_error("encoded game description exceeds protocol limit");
+            memcpy(game_data.desc, game_desc.data(), game_desc.size());
 
-        // max player (not important)
-        game_data.max_players = 12;
-        // ???
-        game_data.category_id = 0;
+            // max player (not important)
+            game_data.max_players = 12;
+            // ???
+            game_data.category_id = 0;
 
-        // get net provider
-        auto net = (NetProvider*)PropGet(PROP_NET);
+            // get net provider
+            auto net = (NetProvider*)PropGet(PROP_NET);
 
-        // set max game (default 0)
-        net->max_game = 1;
+            // set max game (default 0)
+            net->max_game = 1;
 
-        // add game and send join request
-        NetGlueGameJoin(
-            Net_NetProvider_RemoteAdAdd(
-                net,
-                &addr,
-                &addr,
-                1,                          // this should get from somewhere
-                fake_Net_RandomNumber(0),   // must match host's Net::RandomNumber
-                net->program,
-                net->version,
-                &game_data,
-                1,                          // not important
-                12,                         // not important
-                0,                          // not important
-                NULL,                       // ???
-                1                           // ???
-            ),
-            "quicktest",
-            player_name,
-            0
-        );
+            // add game and send join request
+            NetGlueGameJoin(
+                Net_NetProvider_RemoteAdAdd(
+                    net,
+                    &addr,
+                    &addr,
+                    1,                          // this should get from somewhere
+                    fake_Net_RandomNumber(0),   // must match host's Net::RandomNumber
+                    net->program,
+                    net->version,
+                    &game_data,
+                    1,                          // not important
+                    12,                         // not important
+                    0,                          // not important
+                    NULL,                       // ???
+                    1                           // ???
+                ),
+                "quicktest",
+                player_name,
+                0
+            );
 
-        // menu
-        auto glue_mgr = CGlueMgr_Get();
-        NetRegisterEvent(0x40090078, 6, glue_mgr->menu, 0);
-        NetRegisterEvent(0x40090078, 6, glue_mgr->menu, 1);
+            // menu
+            auto glue_mgr = CGlueMgr_Get();
+            NetRegisterEvent(0x40090078, 6, glue_mgr->menu, 0);
+            NetRegisterEvent(0x40090078, 6, glue_mgr->menu, 1);
 
-        return;
-    }
-    return real_CGlueMgr_SetGlueScreen(a1, a2);
-} catch (const std::exception& error) {
-    session.fail(std::string("join menu: ") + error.what());
-} catch (...) {
-    session.fail("unexpected join menu exception");
+            return;
+        }
+        return real_CGlueMgr_SetGlueScreen(a1, a2);
+    });
 }
 #pragma endregion
 
@@ -443,8 +447,8 @@ extern "C" __declspec(dllexport) const char* __cdecl PluginName() {
     // loader 用 PluginName + .dll 查找配置与初始化顺序，必须和文件名一致。
     return "zz_shared_quicktest";
 }
-extern "C" __declspec(dllexport) void __cdecl Initialize() {
-    try {
+extern "C" __declspec(dllexport) void __cdecl Initialize() noexcept {
+    return quicktest::game_callback(session, [&] {
         session.configure();
         if (!session.options().ini_path.empty()) {
             quicktest::install_ini_redirect(GetModuleHandleW(L"kkapi_local_plugin.dll"),
@@ -453,11 +457,7 @@ extern "C" __declspec(dllexport) void __cdecl Initialize() {
         }
         if (!init_game()) session.fail("unsupported or unloaded Game.dll");
         session.log("HOOKS_READY");
-    } catch (const std::exception& error) {
-        session.fail(error.what());
-    } catch (...) {
-        session.fail("unexpected initialization failure");
-    }
+    });
 }
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) DisableThreadLibraryCalls(module);

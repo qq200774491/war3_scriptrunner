@@ -76,14 +76,18 @@ Options parse_options() {
     return result;
 }
 }
-Session::~Session() { close_events(); }
+Session::~Session() {
+    close_events();
+    if (started_) CloseHandle(started_);
+}
 void Session::configure() {
     options_ = parse_options();
     const auto prefix = L"Local\\SharedScriptQuicktest-" + options_.room;
     ready_ = CreateEventW(nullptr, TRUE, FALSE, (prefix + L"-ready").c_str());
     const auto existed = GetLastError() == ERROR_ALREADY_EXISTS;
     failed_ = CreateEventW(nullptr, TRUE, FALSE, (prefix + L"-failed").c_str());
-    if (!ready_ || !failed_ || (options_.host && existed))
+    if (options_.host) started_ = CreateEventW(nullptr, TRUE, FALSE, (prefix + L"-started").c_str());
+    if (!ready_ || !failed_ || (options_.host && (!started_ || existed)))
         throw std::runtime_error("cannot create unique quicktest session events");
     log("CONFIGURED player=" + options_.player);
 }
@@ -98,6 +102,10 @@ void Session::ready() {
     ready_announced_ = true;
     log("HOST_READY");
 }
+void Session::game_started() {
+    // 独立开局事件保留至主机进程退出；关闭建房事件不会抹掉启动状态。
+    if (!SetEvent(started_)) fail("cannot signal game start");
+}
 void Session::check_ready() const {
     if (WaitForSingleObject(failed_, 0) != WAIT_TIMEOUT || WaitForSingleObject(ready_, 0) != WAIT_OBJECT_0)
         throw std::runtime_error("host not ready; launcher must wait before starting join client");
@@ -107,11 +115,13 @@ void Session::log(const std::string& message) const {
     std::ofstream output(std::filesystem::path(options_.log_path), std::ios::app);
     output << GetTickCount64() << " pid=" << GetCurrentProcessId() << ' ' << message << '\n';
 }
-void Session::report_failure(const std::string& message) const {
-    log("FAILED " + message);
+void Session::report_failure(std::string_view message) const noexcept {
+    // 日志分配或 I/O 失败也不能让异常越过游戏回调边界。
+    try { log("FAILED " + std::string(message)); }
+    catch (...) { OutputDebugStringA("quicktest failure log unavailable\n"); }
     if (failed_) SetEvent(failed_);
 }
-[[noreturn]] void Session::fail(const std::string& message) const {
+[[noreturn]] void Session::fail(std::string_view message) const noexcept {
     report_failure(message);
     TerminateProcess(GetCurrentProcess(), 1);
     ExitProcess(1);

@@ -157,7 +157,7 @@ impl App {
                     ui.add_space(38.0);
                     Frame::none()
                         .fill(p.canvas)
-                        .stroke(Stroke::new(1.0, p.border))
+                        .stroke(Stroke::new(1.0_f32, p.border))
                         .rounding(4.0)
                         .inner_margin(Margin::symmetric(8.0, 1.0))
                         .show(ui, |ui| {
@@ -340,12 +340,7 @@ impl App {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if self
                             .icons
-                            .action(
-                                ui,
-                                Icon::Game,
-                                "关闭全部魔兽",
-                                self.close_check.is_none() && !self.confirm_force,
-                            )
+                            .action(ui, Icon::Game, "关闭全部魔兽", !self.game_close.busy())
                             .clicked()
                         {
                             self.close_games();
@@ -496,7 +491,7 @@ impl App {
         ui.add_space(14.0);
         Frame::none()
             .fill(p.canvas)
-            .stroke(Stroke::new(1.0, p.border))
+            .stroke(Stroke::new(1.0_f32, p.border))
             .rounding(5.0)
             .inner_margin(16.0)
             .show(ui, |ui| {
@@ -591,7 +586,7 @@ impl App {
             for player in 0..2 {
                 Frame::none()
                     .fill(p.panel)
-                    .stroke(Stroke::new(1.0, p.border))
+                    .stroke(Stroke::new(1.0_f32, p.border))
                     .rounding(5.0)
                     .inner_margin(18.0)
                     .show(ui, |ui| {

@@ -17,6 +17,12 @@ def lua_string(value):
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_synchronized_event_boundary_failure_and_binary_payload(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / 'build') as folder:
+            source = (f'package.path = {lua_string(ROOT / "map/?.lua")} .. ";" .. package.path\n'
+                f'dofile({lua_string(ROOT / "tests/lua/events.lua")})')
+            self.assertIn('EVENTS_OK', await self.run_lua(source, Path(folder), 'test.lua'))
+
     async def test_game_disconnect_closes_cloud_connection(self):
         with tempfile.TemporaryDirectory(dir=ROOT / 'build') as folder:
             source = (f'package.path = {lua_string(ROOT / "map/?.lua")} .. ";" .. package.path\n'

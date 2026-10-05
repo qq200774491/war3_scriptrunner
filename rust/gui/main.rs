@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 mod chrome;
+mod game_close;
 mod icons;
 mod settings;
 mod snapshot;
@@ -9,16 +10,10 @@ mod theme;
 mod views;
 mod worker;
 use eframe::egui;
-use scriptroom::{
-    config,
-    platform::{self, ForceTarget},
-};
+use game_close::GameClose;
+use scriptroom::config;
 use settings::Draft;
-use std::{
-    collections::VecDeque,
-    path::PathBuf,
-    time::{Duration, Instant},
-};
+use std::{collections::VecDeque, path::PathBuf, time::Duration};
 use theme::Theme;
 use worker::Worker;
 
@@ -44,9 +39,7 @@ struct App {
     notice: String,
     filter: String,
     follow: bool,
-    close_check: Option<Instant>,
-    force: Vec<ForceTarget>,
-    confirm_force: bool,
+    game_close: GameClose,
     confirm_exit: bool,
     exit_after_stop: bool,
 }
@@ -87,9 +80,7 @@ impl App {
             notice,
             filter: String::new(),
             follow: true,
-            close_check: None,
-            force: Vec::new(),
-            confirm_force: false,
+            game_close: GameClose::Idle,
             confirm_exit: false,
             exit_after_stop: false,
         };
@@ -134,33 +125,9 @@ impl App {
                 }
             }
         }
-        if self
-            .close_check
-            .is_some_and(|time| time.elapsed() >= Duration::from_secs(3))
-        {
-            self.close_check = None;
-            self.force.clear();
-            match platform::games() {
-                Ok(games) => {
-                    let remaining = games.len();
-                    for game in games {
-                        match ForceTarget::capture(&game) {
-                            Ok(target) => self.force.push(target),
-                            Err(error) => self.log(error.to_string()),
-                        }
-                    }
-                    self.confirm_force = !self.force.is_empty();
-                    self.notice = if remaining == 0 {
-                        "全部魔兽已退出".into()
-                    } else {
-                        format!(
-                            "仍有 {remaining} 个魔兽进程；可结束 {} 个，权限失败详情见控制台",
-                            self.force.len()
-                        )
-                    };
-                }
-                Err(error) => self.notice = error.to_string(),
-            }
+        for message in self.game_close.poll() {
+            self.notice = message.clone();
+            self.log(message);
         }
     }
     fn start(&mut self, check: bool) {
@@ -182,19 +149,15 @@ impl App {
         }
     }
     fn close_games(&mut self) {
-        match platform::games() {
-            Ok(games) => {
-                if games.is_empty() {
-                    self.notice = "没有运行中的魔兽".into();
-                    return;
+        match self.game_close.request() {
+            Ok(messages) => {
+                for message in messages {
+                    self.log(message.clone());
+                    self.notice = message;
                 }
-                for game in games {
-                    self.log(
-                        platform::request_close(&game).unwrap_or_else(|error| error.to_string()),
-                    );
+                if self.game_close.busy() {
+                    self.notice = "已请求正常关闭全部魔兽，等待退出…".into();
                 }
-                self.notice = "已请求正常关闭全部魔兽，等待退出…".into();
-                self.close_check = Some(Instant::now());
             }
             Err(error) => self.notice = error.to_string(),
         }
@@ -262,7 +225,11 @@ impl App {
         });
     }
     fn dialogs(&mut self, ctx: &egui::Context) {
-        if self.confirm_force {
+        if let GameClose::Confirm(targets) = &self.game_close {
+            let pids = targets
+                .iter()
+                .map(|target| target.pid.to_string())
+                .collect::<Vec<_>>();
             egui::Window::new("仍有魔兽未退出")
                 .collapsible(false)
                 .resizable(false)
@@ -270,29 +237,18 @@ impl App {
                 .show(ctx, |ui| {
                     ui.label(format!(
                         "准备强制结束 {} 个进程。未保存的进度会丢失。",
-                        self.force.len()
+                        pids.len()
                     ));
-                    ui.label(
-                        self.force
-                            .iter()
-                            .map(|p| p.pid.to_string())
-                            .collect::<Vec<_>>()
-                            .join("、"),
-                    );
+                    ui.label(pids.join("、"));
                     ui.horizontal(|ui| {
                         if ui.button("取消").clicked() {
-                            self.confirm_force = false;
-                            self.force.clear();
+                            self.game_close.cancel();
                         }
                         if ui.button("强制结束").clicked() {
-                            self.confirm_force = false;
-                            let targets = std::mem::take(&mut self.force);
-                            for target in targets {
-                                self.log(
-                                    target.terminate().unwrap_or_else(|error| error.to_string()),
-                                );
-                            }
-                            self.notice = "已执行结束请求，结果见控制台".into();
+                            self.notice = match self.game_close.terminate() {
+                                Ok(()) => "正在后台结束魔兽，结果见控制台…".into(),
+                                Err(error) => error.to_string(),
+                            };
                         }
                     });
                 });

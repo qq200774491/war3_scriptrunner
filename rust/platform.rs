@@ -201,6 +201,9 @@ pub struct ForceTarget {
     pub pid: u32,
     handle: ForceHandle,
 }
+// Windows 进程和事件句柄允许跨线程使用；这里仅转移独占所有权，不提供 Sync。
+unsafe impl Send for ForceTarget {}
+
 impl ForceTarget {
     pub fn capture(game: &GameProcess) -> Result<Self> {
         anyhow::ensure!(
@@ -419,7 +422,10 @@ print('GAME_EXIT ' .. tostring(code))
             let target = ForceTarget::capture(&game)?;
             let stale_confirmation = ForceTarget::capture(&game)?;
             anyhow::ensure!(
-                target.terminate()?.contains("已强制结束"),
+                std::thread::spawn(move || target.terminate())
+                    .join()
+                    .expect("关闭线程异常退出")?
+                    .contains("已强制结束"),
                 "owner close failed"
             );
             anyhow::ensure!(
