@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Output,
     [string]$Config,
     [switch]$SkipNative,

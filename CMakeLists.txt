@@ -3,6 +3,8 @@ project(shared_script_room LANGUAGES CXX)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
   message(FATAL_ERROR "The verified vendor ABI requires Windows x86. Configure with -A Win32.")
 endif()
+# 发行构建使用完整链接，避免依赖上次构建遗留的 .ilk 增量数据库。
+add_link_options("$<$<CONFIG:Release>:/INCREMENTAL:NO>")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/compatibility/engine-v1.json" ENGINE_PROFILE)
 string(JSON VERIFIED_SHA256 GET "${ENGINE_PROFILE}" sha256)
 string(JSON CREATE_EXPORT GET "${ENGINE_PROFILE}" create_export)

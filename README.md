@@ -33,6 +33,20 @@ Copy-Item 本地测试配置.example.json 本地测试配置.json
 
 输出目录为 `build/package/ScriptRoom-Rust`，包含 `ScriptRoom.exe` 和 `ScriptRoomCLI.exe`。运行便携版无需安装 Rust、Python 或编译工具。
 
+### 在 VS Code 中打包并安装
+
+准备好上面的构建工具和本机配置后，按 `Ctrl+Shift+B` 执行默认任务 **ScriptRoom: 打包并安装（当前用户）**。任务会编译 Release 版本，安装到 `%LOCALAPPDATA%\Programs\ScriptRoom`，检查配置并创建开始菜单快捷方式，无需管理员权限。安装完成后可从开始菜单打开 ScriptRoom。
+
+“终端 → 运行任务”中也可选择 **ScriptRoom: 打包便携版**，输出到上述发行目录。这里的安装任务是本机源码构建安装，不生成单文件 Setup 安装包。
+
+也可以在 PowerShell 中安装到指定目录：
+
+```powershell
+.\tools\install_rust.ps1 -InstallDir 'D:\Apps\ScriptRoom'
+```
+
+更新前退出该安装目录中的 ScriptRoom 和云服务，再运行同一任务。已有配置、界面设置和存档会保留；配置中的地图、云脚本、游戏和存档路径继续指向原有位置，不会随安装迁移。安装脚本支持与打包脚本相同的 `-Config`、`-SkipNative` 和 `-SkipBuild` 参数，跳过构建仅适用于已有最新构建产物时。
+
 ## 配置路径
 
 编辑程序旁的 `本地测试配置.json`，或在 GUI 的“路径与配置”中填写：
