@@ -1,7 +1,9 @@
 {
   "script_dir": "../script",
   "cloud_bootstrap": [
-    "fixtures/handlers.lua"
+    "fixtures/handlers.lua",
+    "fixtures/allowance.lua",
+    "fixtures/shared_store.lua"
   ],
   "room": {
     "mode_id": 0,
@@ -17,6 +19,6 @@
     "startup": 3.0,
     "case": 5.0,
     "event": 1.0,
-    "shutdown": 1.0
+    "shutdown": 3.0
   }
 }

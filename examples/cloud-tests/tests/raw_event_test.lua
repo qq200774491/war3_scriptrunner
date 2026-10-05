@@ -5,7 +5,7 @@ TEST_CASE('raw event round trip', '[example][event]', function(ctx)
     local response = client:waitEvent({name = 'echo_res'})
 
     REQUIRE(response)
-    CHECK_EQ(response.data, 'mls-sim-example:hello')
+    CHECK_EQ(assert(response).data, 'mls-sim-example:hello')
 end)
 
 TEST_CASE('waitEvent preserves unmatched events', '[example][event]', function(ctx)
@@ -15,7 +15,7 @@ TEST_CASE('waitEvent preserves unmatched events', '[example][event]', function(c
     local response = client:waitEvent({name = 'ordered_res'})
 
     REQUIRE(response)
-    CHECK_EQ(response.data, 'target')
+    CHECK_EQ(assert(response).data, 'target')
     local remaining = client:poll()
     REQUIRE_EQ(#remaining, 1)
     CHECK_EQ(remaining[1].name, 'other_res')
@@ -28,14 +28,14 @@ TEST_CASE('SECTION paths use isolated rooms', '[example][section]', function(ctx
         REQUIRE_EQ(client:send('echo_req', 'first'), 0)
         local response = client:waitEvent({name = 'echo_res'})
         REQUIRE(response)
-        CHECK_EQ(response.data, 'mls-sim-example:first')
+        CHECK_EQ(assert(response).data, 'mls-sim-example:first')
     end)
 
     SECTION('second path', function()
         REQUIRE_EQ(client:send('echo_req', 'second'), 0)
         local response = client:waitEvent({name = 'echo_res'})
         REQUIRE(response)
-        CHECK_EQ(response.data, 'mls-sim-example:second')
+        CHECK_EQ(assert(response).data, 'mls-sim-example:second')
     end)
 end)
 
@@ -56,7 +56,7 @@ TEST_CASE('server responses can be delayed', '[example][event][delay]', function
     CHECK(client:waitEvent({name = 'echo_res', timeout = 0.01}) == nil)
     local response = client:waitEvent({name = 'echo_res'})
     REQUIRE(response)
-    CHECK_EQ(response.data, 'mls-sim-example:delayed')
+    CHECK_EQ(assert(response).data, 'mls-sim-example:delayed')
 end)
 
 TEST_CASE('client exposes a monotonic test clock', '[example][event][time]', function(ctx)

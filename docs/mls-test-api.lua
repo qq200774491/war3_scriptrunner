@@ -1,5 +1,21 @@
 ---@meta
 
+-- 测试 VM 内置工具；由宿主提供，不需要 require，也不要执行本声明文件。
+json = {}
+
+---@param value any
+---@return string
+function json.encode(value) end
+
+---JSON null、nil 和空字符串解码为 nil；非法 JSON 抛出错误。
+---@param text string?
+---@return any
+function json.decode(text) end
+
+---@param value any
+---@return string hex
+function md5(value) end
+
 ---@class MlsTestEvent
 ---@field timestamp number
 ---@field playerIndex integer
@@ -26,13 +42,16 @@ function MlsTestClient:now() end
 ---@param eventName string
 ---@param eventData string
 ---@return integer errnum
+---仅表示平台接收结果，不代表业务成功；名称最多32字节，数据最多900字节。
 function MlsTestClient:send(eventName, eventData) end
 
 ---@return MlsTestEvent[]
+---取出并清空当前已到达的所有事件。
 function MlsTestClient:poll() end
 
 ---@param options? MlsTestWaitOptions
 ---@return MlsTestEvent?
+---等待并消费匹配事件；保留不匹配事件，超时返回nil。
 function MlsTestClient:waitEvent(options) end
 
 ---@return integer removedCount
@@ -136,6 +155,7 @@ function MlsTestContext:gaUnlock(key) end
 function MlsTestContext:gaBroadcast(key, value) end
 
 ---Delay every subsequent _msga_reply by the given seconds (0 restores immediate delivery).
+---Shared by all rooms in this invocation; does not delay storage execution.
 ---@param seconds number
 function MlsTestContext:setGaReplyDelay(seconds) end
 
@@ -145,6 +165,7 @@ function MlsTestContext:setGaReplyDelay(seconds) end
 ---@field count? integer Number of calls to fail; nil keeps failing until cleared.
 
 ---Inject platform failures into subsequent MsGA* calls; pass nil to clear.
+---Shared by all rooms in this invocation; rejects operations before storage changes.
 ---@param rule MlsTestGaFault?
 function MlsTestContext:setGaFault(rule) end
 
