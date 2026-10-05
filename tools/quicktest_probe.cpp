@@ -10,7 +10,20 @@ int wmain() {
         if (session.options().host) {
             session.ready();
             std::cout << "READY\n" << std::flush;
-            std::cin.get();
+            // 用输入驱动生命周期边界，父进程可同时检查事件和进程是否存活。
+            char action;
+            while (std::cin.get(action)) {
+                if (action == 'm') {
+                    std::cout << session.options().map << '\n' << std::flush;
+                } else if (action == 'f') {
+                    session.report_failure("probe recoverable lobby failure");
+                    std::cout << "FAILED_REPORTED\n" << std::flush;
+                } else if (action == 'c') {
+                    session.close_events();
+                    session.ready();
+                    std::cout << "READY_CLOSED\n" << std::flush;
+                }
+            }
         } else {
             session.check_ready();
             std::cout << "JOIN_READY\n";

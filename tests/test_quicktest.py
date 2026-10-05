@@ -82,3 +82,35 @@ class QuicktestTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(str(game / 'war3.exe'), line)
             self.assertIn('--qt-ini ' + str(files[player].resolve()), line)
             self.assertNotIn(str(files[1-player].resolve()), line)
+
+    async def test_recoverable_failure_preserves_process_and_normalizes_map_path(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / 'build') as folder:
+            room = str(uuid.uuid4())
+            map_file = Path(folder) / 'Maps/Test/map.w3x'
+            map_file.parent.mkdir(parents=True)
+            map_file.touch()
+            log = Path(folder) / 'host.log'
+            host = await asyncio.create_subprocess_exec(str(PROBE), '-host', '2', 'Maps/Test/map.w3x',
+                '--qt-room', room, '--qt-player', 'SRPlayer0', '--qt-log', str(log), cwd=folder,
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            signals = HostSignals(room)
+            try:
+                await signals.wait(3)
+                self.assertEqual(await host.stdout.readline(), b'READY\r\n')
+                host.stdin.write(b'mf')
+                await host.stdin.drain()
+                self.assertEqual(await host.stdout.readline(), b'Maps\\Test\\map.w3x\r\n')
+                self.assertEqual(await host.stdout.readline(), b'FAILED_REPORTED\r\n')
+                with self.assertRaisesRegex(RuntimeError, 'signaled failure'):
+                    await signals.wait(1)
+                self.assertIsNone(host.returncode)
+                host.stdin.write(b'c')
+                await host.stdin.drain()
+                self.assertEqual(await host.stdout.readline(), b'READY_CLOSED\r\n')
+                self.assertIsNone(host.returncode)
+                self.assertEqual(log.read_text().count('HOST_READY'), 1)
+            finally:
+                host.stdin.close()
+                await asyncio.wait_for(host.wait(), 3)
+                signals.close()
+            self.assertEqual(host.returncode, 0)

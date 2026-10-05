@@ -26,10 +26,12 @@ public:
     void check_ready() const;
     void close_events();
     void log(const std::string& message) const;
+    void report_failure(const std::string& message) const;
     [[noreturn]] void fail(const std::string& message) const;
 private:
     Options options_;
     HANDLE ready_ = nullptr;
     HANDLE failed_ = nullptr;
+    bool ready_announced_ = false;
 };
 }

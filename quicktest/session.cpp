@@ -49,12 +49,12 @@ Options parse_options() {
             result.host = true;
             if (value() != L"2") throw std::runtime_error("this integration currently requires two players");
             result.players = 2;
-            const auto path = std::filesystem::path(value());
+            auto path = std::filesystem::path(value());
             if (path.has_root_path() || path.empty() || *path.begin() != L"Maps" ||
                 std::find(path.begin(), path.end(), L"..") != path.end() ||
                 !std::filesystem::is_regular_file(path))
                 throw std::runtime_error("host map must exist under the game's relative Maps directory");
-            result.map = ansi_path(path.wstring());
+            result.map = ansi_path(path.make_preferred().wstring());
             if (result.map.size() >= 80) throw std::runtime_error("host map relative path is too long");
         } else if (key == L"-join") {
             ++roles;
@@ -93,7 +93,9 @@ void Session::close_events() {
     ready_ = failed_ = nullptr;
 }
 void Session::ready() {
+    if (ready_announced_) return;
     if (!SetEvent(ready_)) fail("cannot signal host ready");
+    ready_announced_ = true;
     log("HOST_READY");
 }
 void Session::check_ready() const {
@@ -105,9 +107,12 @@ void Session::log(const std::string& message) const {
     std::ofstream output(std::filesystem::path(options_.log_path), std::ios::app);
     output << GetTickCount64() << " pid=" << GetCurrentProcessId() << ' ' << message << '\n';
 }
-[[noreturn]] void Session::fail(const std::string& message) const {
+void Session::report_failure(const std::string& message) const {
     log("FAILED " + message);
     if (failed_) SetEvent(failed_);
+}
+[[noreturn]] void Session::fail(const std::string& message) const {
+    report_failure(message);
     TerminateProcess(GetCurrentProcess(), 1);
     ExitProcess(1);
 }

@@ -52,7 +52,12 @@ struct App {
 }
 impl App {
     fn new(cc: &eframe::CreationContext<'_>, root: PathBuf) -> Self {
-        Self::create(&cc.egui_ctx, root, snapshot::Snapshot::from_args())
+        let mut app = Self::create(&cc.egui_ctx, root, snapshot::Snapshot::from_args());
+        // 显式启动参数复用按钮入口；截图模式不启动游戏。
+        if app.snapshot.is_none() && std::env::args_os().any(|arg| arg == "--start") {
+            app.start(false);
+        }
+        app
     }
     fn create(ctx: &egui::Context, root: PathBuf, snapshot: Option<snapshot::Snapshot>) -> Self {
         theme::fonts(ctx);

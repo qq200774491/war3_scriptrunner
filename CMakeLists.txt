@@ -20,7 +20,7 @@ add_library(zz_shared_quicktest SHARED quicktest/game_hooks.cpp quicktest/sessio
 target_compile_features(zz_shared_quicktest PRIVATE cxx_std_20)
 target_compile_definitions(zz_shared_quicktest PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
 target_compile_options(zz_shared_quicktest PRIVATE /W4 /WX /EHsc /utf-8)
-target_link_libraries(zz_shared_quicktest PRIVATE detours ws2_32 shell32)
+target_link_libraries(zz_shared_quicktest PRIVATE detours ws2_32 shell32 user32)
 set_property(TARGET zz_shared_quicktest PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_executable(quicktest_probe tools/quicktest_probe.cpp quicktest/session.cpp)
 target_include_directories(quicktest_probe PRIVATE quicktest)

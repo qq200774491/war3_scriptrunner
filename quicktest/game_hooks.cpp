@@ -136,52 +136,63 @@ int player_count;
 int player_joined = 1;
 bool leave_is_error = false;
 void(__fastcall* real_CGlueMgr_SetGlueScreen)(uint32_t, uint32_t);
+bool host_pending = true;
+constexpr UINT host_menu_warmup_ms = 5000;
+void CALLBACK on_host_menu_ready(HWND, UINT, UINT_PTR timer, DWORD) try {
+    KillTimer(nullptr, timer);
+    session.log("HOST_CREATE_BEGIN");
+    // open map
+    if (!WorldOpenMapArchive(filepath.c_str())) {
+        session.fail("Load map failed");
+    }
+
+    // get map info
+    TSGrowableArray<void> players{};
+    if (!WorldGetMapInfo(filepath.c_str(), NULL, &players, NULL, NULL)) {
+        session.fail("Load map info failed");
+    }
+
+    // create game
+    NetGlueGameCreate(
+        "quicktest",
+        "quicktest",
+        filepath.c_str(),
+        players.size,
+        players.size,
+        1, // game type
+        2, // game speed
+        DEFAULT_MAP_FLAG,
+        player_name,
+        false,
+        false,
+        false,
+        0
+    );
+
+    // menu ui
+    auto glue_mgr = CGlueMgr_Get();
+    NetRegisterEvent(0x40090073, 6, glue_mgr->menu, 0);
+    NetRegisterEvent(0x40090073, 6, glue_mgr->menu, 1);
+
+    session.log("HOST_LOBBY");
+
+    leave_is_error = true;
+
+} catch (const std::exception& error) {
+    session.fail(std::string("host create: ") + error.what());
+} catch (...) {
+    session.fail("unexpected host create exception");
+}
 void __fastcall fake_CGlueMgr_SetGlueScreen_host(uint32_t a1, uint32_t a2) try {
-    // main menu
-    if (a1 == 2 && !filepath.empty()) {
-        // initialize NetProvider
+    if (a1 == 2 && host_pending) {
+        host_pending = false;
         NetInitializeProvider('TCPN', 0);
-
-        // set to create game menu
         real_CGlueMgr_SetGlueScreen(9, 1);
-
-        // open map
-        if (!WorldOpenMapArchive(filepath.c_str())) {
-            session.fail("Load map failed");
-        }
-
-        // get map info
-        TSGrowableArray<void> players{};
-        if (!WorldGetMapInfo(filepath.c_str(), NULL, &players, NULL, NULL)) {
-            session.fail("Load map info failed");
-        }
-
-        // create game
-        NetGlueGameCreate(
-            "quicktest",
-            "quicktest",
-            filepath.c_str(),
-            players.size,
-            players.size,
-            1, // game type
-            2, // game speed
-            DEFAULT_MAP_FLAG,
-            player_name,
-            false,
-            false,
-            false,
-            0
-        );
-
-        // menu ui
-        auto glue_mgr = CGlueMgr_Get();
-        NetRegisterEvent(0x40090073, 6, glue_mgr->menu, 0);
-        NetRegisterEvent(0x40090073, 6, glue_mgr->menu, 1);
-
-        session.log("HOST_LOBBY");
-        filepath.clear();
-        leave_is_error = true;
-
+        // 让初始菜单调用栈先退出，再由同一线程的消息循环发起建房。
+        // 当前地图加载器需要菜单预热；实测仅推迟一个消息循环仍会退出。
+        if (!SetTimer(nullptr, 0, host_menu_warmup_ms, on_host_menu_ready))
+            session.fail("cannot schedule host creation");
+        session.log("HOST_MENU_READY");
         return;
     }
     return real_CGlueMgr_SetGlueScreen(a1, a2);
@@ -193,6 +204,8 @@ void __fastcall fake_CGlueMgr_SetGlueScreen_host(uint32_t a1, uint32_t a2) try {
 void(__thiscall* real_CGameChatroom_OnDistFilesOutstanding)(CGameChatroom*, CNetGlueGameSetup::CEventDistFilesOutstanding*);
 void __fastcall fake_CGameChatroom_OnDistFilesOutstanding(CGameChatroom* _this, uint32_t, CNetGlueGameSetup::CEventDistFilesOutstanding* e) {
     real_CGameChatroom_OnDistFilesOutstanding(_this, e);
+    // 地图配置返回不代表房主已进入房间；文件分发完成后才允许启动加入端。
+    if (e->count == 0) session.ready();
     if (e->count == 0 && player_count == player_joined) {
         // start game
         session.log("START_GAME players=" + std::to_string(player_joined));
@@ -218,15 +231,16 @@ BOOL __fastcall fake_CGameWar3_LoadMapSetup(uint32_t a1, uint32_t, uint32_t a2, 
     if (!ret) {
         session.fail("Load map setup failed");
     }
-    // host ready to accept join request
-    session.ready();
+    session.log("MAP_SETUP_LOADED");
 
     return ret;
 }
 void(__fastcall* real_NetLeaveGame)(uint32_t, uint32_t, uint32_t);
 void __fastcall fake_NetLeaveGame(uint32_t a1, uint32_t a2, uint32_t a3) {
     if (leave_is_error) {
-        session.fail("Unknown error (host left game)");
+        // 房间错误或用户取消只结束本轮启动，保留游戏窗口和原生错误提示。
+        leave_is_error = false;
+        session.report_failure("host left lobby before game start");
     }
     return real_NetLeaveGame(a1, a2, a3);
 }
