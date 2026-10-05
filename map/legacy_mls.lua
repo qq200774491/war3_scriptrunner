@@ -30,7 +30,7 @@ function M.install(profile)
         if failure_shown then return end
         failure_shown = true
         display_text(cj.GetLocalPlayer(), 0, 0, 120,
-            '|cffff5555本地云脚本连接失败，请退出两端后重新启动测试。详情见 mls-player 日志。|r')
+            '|cffff5555本地联机或云脚本连接已中断，存档加载不能继续。请退出两端后重新启动测试。详情见 mls-player 日志。|r')
     end
     rawset(japi, 'DzTriggerRegisterSyncData', function(trigger, name, server)
         if server and listeners[name] then

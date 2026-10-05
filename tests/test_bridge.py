@@ -17,6 +17,12 @@ def lua_string(value):
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_game_disconnect_closes_cloud_connection(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / 'build') as folder:
+            source = (f'package.path = {lua_string(ROOT / "map/?.lua")} .. ";" .. package.path\n'
+                f'dofile({lua_string(ROOT / "tests/lua/roster.lua")})')
+            self.assertIn('ROSTER_OK', await self.run_lua(source, Path(folder), 'test.lua'))
+
     async def test_legacy_mls_request_and_synchronized_callback_boundary(self):
         with tempfile.TemporaryDirectory(dir=ROOT / 'build') as folder:
             source = (f'package.path = {lua_string(ROOT / "map/?.lua")} .. ";" .. package.path\n'

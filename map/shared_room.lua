@@ -71,6 +71,14 @@ function M.start(profile, callbacks, injected)
     end
     local function poll()
         if local_closed then return end
+        -- 游戏联机与云端 TCP 是两条连接；玩家离开后不能继续显示云房间就绪。
+        for player = 0, 15 do
+            if profile.players[player] and
+                cj.GetPlayerSlotState(cj.Player(player)) ~= cj.PLAYER_SLOT_STATE_PLAYING then
+                local_failure('game player ' .. player .. ' left; restart requires a new room')
+                return
+            end
+        end
         if not connection then
             local player = profile.players[local_player]
             if not player then local_closed = true; return end

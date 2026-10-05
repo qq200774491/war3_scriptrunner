@@ -11,6 +11,9 @@ local function create(player)
     local cj = {
         GetPlayerId = function(value) return value end,
         GetLocalPlayer = function() return player end,
+        Player = function(value) return value end,
+        GetPlayerSlotState = function() return 1 end,
+        PLAYER_SLOT_STATE_PLAYING = 1,
         CreateTrigger = function() return {} end,
         TriggerAddAction = function(_, action) state.action = action end,
         CreateTimer = function() return {} end,
