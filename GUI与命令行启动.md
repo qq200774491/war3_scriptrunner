@@ -1,8 +1,8 @@
-# GUI 与命令行启动
+# 旧 Python 版 GUI 与命令行启动
 
 首次克隆后，复制 `本地测试配置.example.json` 为 `本地测试配置.json`，再填写实际地图、脚本和存档路径。示例中的 `map` 是通用项目名；本机配置不纳入版本控制。
 
-map 已接入现有地图、本地脚本和共享云脚本。便携版不用安装 Python、CMake 或 Visual Studio；运行需要现有 KKWE、对应版本魔兽、地图和脚本文件。
+本文适用于 `tools/package_launcher.py` 生成的旧 Python 版。当前 Rust 版请阅读 [Rust 启动器使用说明](Rust启动器.md)。便携版不用安装 Python、CMake 或 Visual Studio；运行需要现有 KKWE、对应版本魔兽、地图和脚本文件。
 
 ## 双击使用
 
@@ -12,7 +12,7 @@ map 已接入现有地图、本地脚本和共享云脚本。便携版不用安�
 
 需要保留整个便携文件夹，不能只复制一个 EXE。两个 EXE 共用 `_internal` 运行库，原生组件在 `build/Release`。日志在便携目录下的 `build/game`。
 
-界面沿用 ShadowWorks 的紧凑布局，提供黑白灰、深灰蓝两种配色；顶部仅保留 ScriptRoom，首页以日志为主；设置页分组展示路径，运行环境与运行选项默认收起，点“展开”修改。保留 Windows 原生标题栏的移动、缩放和最大化。
+界面提供黑白灰、深灰蓝两种配色；顶部仅保留 ScriptRoom，首页以日志为主；设置页分组展示路径，运行环境与运行选项默认收起，点“展开”修改。保留 Windows 原生标题栏的移动、缩放和最大化。
 
 在“设置 → 外观”选择主题，立即生效并自动保存。主题偏好保存在启动器旁的 `界面设置.json`，与地图的 `本地测试配置.json` 分开；切换主题保留未保存的路径编辑、日志和正在运行的云服务。
 
@@ -24,11 +24,11 @@ map 已接入现有地图、本地脚本和共享云脚本。便携版不用安�
 {
   "map": "D:/Code/map/test.w3x",
   "local_entry": "D:/Code/map/script/lightning_main.lua",
-  "cloud_scripts": "D:/Code/MlScriptFolder/script_compile",
-  "archives": "F:/code/scriptrunner/build/state/map",
+  "cloud_scripts": "D:/Code/cloud_scripts/script_compile",
+  "archives": "build/state/map",
   "editor": "D:/war3Project/KKWE插件",
   "source_game": "D:/war3Project/war3",
-  "game": "F:/code/scriptrunner/build/warcraft-demo",
+  "game": "build/warcraft-demo",
   "seconds": 3600,
   "startup_timeout": 90
 }
@@ -73,4 +73,4 @@ python tools/package_launcher.py
 
 输出 `build/package/ScriptRoom`，包含 GUI 和 CLI。开发环境需要 Python、CMake、VS 2022 C++ Win32 工具链；运行便携版不需要这些开发工具。源码也可执行 `python tools/launcher.py --gui` 或 `python tools/launcher.py --cli --check`。
 
-当前地图启动器支持本机固定双人，共享唯一云脚本房间。已适配map 使用的 MLS 接口；其他地图需使用兼容接口与本地入口，不能仅修改路径就保证所有平台 API 可用。地图包、云脚本和魔兽资源不包含在便携包内。
+当前地图启动器支持本机固定双人，共享唯一云脚本房间。地图需使用兼容的 MLS 接口与本地入口，不能仅修改路径就保证所有平台 API 可用。地图包、云脚本和魔兽资源不包含在便携包内。
