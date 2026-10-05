@@ -142,7 +142,7 @@ int player_joined = 1;
 bool leave_is_error = false;
 void(__fastcall* real_CGlueMgr_SetGlueScreen)(uint32_t, uint32_t);
 bool host_pending = true;
-constexpr UINT host_menu_warmup_ms = 3000;
+constexpr UINT host_menu_warmup_ms = 1000;
 void CALLBACK on_host_menu_ready(HWND, UINT, UINT_PTR timer, DWORD) try {
     KillTimer(nullptr, timer);
     session.log("HOST_CREATE_BEGIN");
