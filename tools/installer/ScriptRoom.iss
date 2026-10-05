@@ -21,12 +21,15 @@ AllowNoIcons=yes
 UninstallDisplayIcon={app}\ScriptRoom.exe
 CloseApplications=yes
 RestartApplications=no
+ShowLanguageDialog=no
+UsePreviousLanguage=no
+LanguageDetectionMethod=none
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimplified"; MessagesFile: "{#ProjectRoot}\third_party\inno\ChineseSimplified.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："; Flags: unchecked
 
 [Files]
 #include FileList
@@ -37,4 +40,4 @@ Name: "{group}\ScriptRoom"; Filename: "{app}\ScriptRoom.exe"; WorkingDir: "{app}
 Name: "{autodesktop}\ScriptRoom"; Filename: "{app}\ScriptRoom.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\ScriptRoom.exe"; Description: "Launch ScriptRoom"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\ScriptRoom.exe"; Description: "启动 ScriptRoom"; Flags: nowait postinstall skipifsilent

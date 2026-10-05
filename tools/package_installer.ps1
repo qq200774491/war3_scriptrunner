@@ -27,7 +27,7 @@ function Find-InstallerCompiler {
     $toolsRoot = Join-Path $projectRoot 'build\tools'
     New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
     $download = Join-Path $toolsRoot 'innosetup-6.7.3.exe'
-    Invoke-WebRequest -Uri 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $download
+    Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $download
     $signature = Get-AuthenticodeSignature -LiteralPath $download
     if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B\.V\.') {
         throw 'Inno Setup download signature verification failed'
@@ -65,7 +65,7 @@ foreach ($property in $manifest.PSObject.Properties) {
     $entries += 'Source: "{#PayloadDir}\' + $relative + '"; DestDir: "' + $destination + '"; Flags: ignoreversion'
 }
 $entries += 'Source: "{#PayloadDir}\package-manifest.json"; DestDir: "{app}"; Flags: ignoreversion'
-foreach ($relative in @('README.md', 'third_party\README.md', 'third_party\detours\LICENSE.md', 'quicktest\LICENSE', 'LICENSE')) {
+foreach ($relative in @('README.md', 'third_party\README.md', 'third_party\detours\LICENSE.md', 'quicktest\LICENSE', 'third_party\inno\LICENSE.TXT', 'LICENSE')) {
     $source = Join-Path $projectRoot $relative
     if (!(Test-Path -LiteralPath $source)) { continue }
     $parent = Split-Path -Parent $relative

@@ -35,7 +35,7 @@ Copy-Item 本地测试配置.example.json 本地测试配置.json
 
 ### 在 VS Code 中打包并安装
 
-准备好上面的构建工具和本机配置后，按 `Ctrl+Shift+B` 执行默认任务 **ScriptRoom: 生成安装包（Setup.exe）**，得到 `build/package/installer/ScriptRoom-Setup.exe`。双击该文件可选择安装目录、创建开始菜单快捷方式，并在 Windows 设置中卸载。默认安装到当前用户的 `%LOCALAPPDATA%\Programs\ScriptRoom`，无需管理员权限。升级安装和卸载均保留已有配置与存档。首次安装提供示例配置，需要填写本机实际路径。
+准备好上面的构建工具和本机配置后，按 `Ctrl+Shift+B` 执行默认任务 **ScriptRoom: 生成安装包（Setup.exe）**，得到 `build/package/installer/ScriptRoom-Setup.exe`。双击该文件进入默认简体中文安装向导，可选择安装目录、创建开始菜单快捷方式，并在 Windows 设置中卸载。默认安装到当前用户的 `%LOCALAPPDATA%\Programs\ScriptRoom`，无需管理员权限。升级安装和卸载均保留已有配置与存档。首次安装提供示例配置，需要填写本机实际路径。
 
 首次生成安装包会下载并验证官方 Inno Setup 构建工具，以便携模式放在 `build/tools`；也可使用 `tools/package_installer.ps1 -Compiler <ISCC.exe 路径>` 指定已安装的编译器。安装包只包含正式程序资源，不包含本机地图、云脚本、存档和测试日志。
 
