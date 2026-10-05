@@ -1,0 +1,5 @@
+LIBRARY ini_api_fixture
+EXPORTS
+    fixture_get
+    fixture_int
+    fixture_write

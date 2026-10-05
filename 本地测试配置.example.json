@@ -1,0 +1,11 @@
+{
+  "map": "D:/Code/map/test.w3x",
+  "local_entry": "D:/Code/map/script/lightning_main.lua",
+  "cloud_scripts": "D:/Code/cloud_scripts/script_compile",
+  "archives": "build/state/map",
+  "editor": "D:/war3Project/KKWE插件",
+  "source_game": "D:/war3Project/war3",
+  "game": "build/warcraft-demo",
+  "seconds": 3600,
+  "startup_timeout": 90
+}

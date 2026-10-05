@@ -1,0 +1,29 @@
+#pragma once
+// 由已验证的兼容配置生成；不是候选 DLL 自动探测结果。
+namespace room::profile {
+inline constexpr auto sha256 = "@VERIFIED_SHA256@";
+inline constexpr auto create_export = "@CREATE_EXPORT@";
+inline constexpr auto destroy_export = "@DESTROY_EXPORT@";
+inline constexpr unsigned load_slot = @LOAD_SLOT@;
+inline constexpr unsigned tick_slot = @TICK_SLOT@;
+inline constexpr unsigned event_slot = @EVENT_SLOT@;
+inline constexpr unsigned log_slot = @LOG_SLOT@;
+inline constexpr unsigned player_count_slot = @PLAYER_COUNT_SLOT@;
+inline constexpr unsigned send_event_slot = @SEND_EVENT_SLOT@;
+inline constexpr unsigned player_name_slot = @PLAYER_NAME_SLOT@;
+inline constexpr unsigned played_count_slot = @PLAYED_COUNT_SLOT@;
+inline constexpr unsigned room_start_slot = @ROOM_START_SLOT@;
+inline constexpr unsigned room_loaded_slot = @ROOM_LOADED_SLOT@;
+inline constexpr unsigned room_time_slot = @ROOM_TIME_SLOT@;
+inline constexpr unsigned room_mode_slot = @ROOM_MODE_SLOT@;
+inline constexpr unsigned get_archive_slot = @GET_ARCHIVE_SLOT@;
+inline constexpr unsigned save_archive_slot = @SAVE_ARCHIVE_SLOT@;
+inline constexpr unsigned end_player_slot = @END_PLAYER_SLOT@;
+inline constexpr unsigned ga_hmset_slot = @GA_HMSET_SLOT@;
+inline constexpr unsigned ga_hmget_slot = @GA_HMGET_SLOT@;
+inline constexpr unsigned ga_hgetall_slot = @GA_HGETALL_SLOT@;
+inline constexpr unsigned ga_hdel_slot = @GA_HDEL_SLOT@;
+inline constexpr unsigned ga_lock_acquire_slot = @GA_LOCK_ACQUIRE_SLOT@;
+inline constexpr unsigned ga_lock_release_slot = @GA_LOCK_RELEASE_SLOT@;
+inline constexpr unsigned ga_broadcast_slot = @GA_BROADCAST_SLOT@;
+}

@@ -1,0 +1,4 @@
+LIBRARY zz_shared_quicktest
+EXPORTS
+    PluginName
+    Initialize

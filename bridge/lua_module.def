@@ -1,0 +1,9 @@
+LIBRARY shared_room_native
+EXPORTS
+    luaopen_shared_room_native
+    sr_error
+    sr_open
+    sr_join
+    sr_send
+    sr_poll
+    sr_close

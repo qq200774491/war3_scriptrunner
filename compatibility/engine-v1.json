@@ -1,0 +1,14 @@
+{
+  "profile": "scriptrunner-x86-675efb39-minimal",
+  "sha256": "675efb393edf2eb4238c3ada62f1ae82df1bd381b8d141180fb52fc7b24f5d8e",
+  "machine": 332,
+  "create_export": "?CreateScriptRunner@@YAPAVScriptRunner@CloudScript@@PAVNativeInterface@2@@Z",
+  "destroy_export": "?DestroyScriptRunner@@YAXPAVScriptRunner@CloudScript@@@Z",
+  "runner_slots": {"load": 1, "tick": 2, "event": 3},
+  "native_slots": {"log": 1, "player_count": 12, "send_event": 18,
+    "player_name": 2, "played_count": 7, "room_start": 9, "room_loaded": 10, "room_time": 11,
+    "room_mode": 13, "get_archive": 14, "save_archive": 15, "end_player": 23,
+    "ga_hmset": 64, "ga_hmget": 65, "ga_hgetall": 66, "ga_hdel": 68,
+    "ga_lock_acquire": 69, "ga_lock_release": 70, "ga_broadcast": 71},
+  "scope": "Local fixed-slot identities, isolated archives and single-host global Hash/lock/broadcast subset; no real platform account or cross-host services."
+}
