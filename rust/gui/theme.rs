@@ -2,6 +2,9 @@ use eframe::egui::{self, Color32, FontData, FontDefinitions, FontFamily, FontId,
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+// 辅助文字也需要足够的笔画像素，避免各页面再次使用过小字号。
+pub const SMALL_TEXT_SIZE: f32 = 13.0;
+
 #[derive(Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
@@ -41,7 +44,7 @@ impl Theme {
                 border: Color32::from_rgb(222, 225, 230),
                 divider: Color32::from_rgb(232, 234, 238),
                 text: Color32::from_rgb(45, 50, 58),
-                muted: Color32::from_rgb(117, 124, 135),
+                muted: Color32::from_rgb(90, 98, 110),
                 accent: Color32::from_rgb(55, 112, 215),
                 selected: Color32::from_rgb(224, 234, 251),
                 rail: Color32::from_rgb(233, 237, 244),
@@ -54,8 +57,8 @@ impl Theme {
             raised: Color32::from_gray(45),
             border: Color32::from_gray(57),
             divider: Color32::from_gray(48),
-            text: Color32::from_rgb(224, 227, 232),
-            muted: Color32::from_rgb(163, 170, 181),
+            text: Color32::from_rgb(236, 238, 242),
+            muted: Color32::from_rgb(185, 191, 201),
             accent: if blue {
                 Color32::from_rgb(74, 139, 240)
             } else {
@@ -118,14 +121,14 @@ impl Theme {
         for (kind, size) in [
             (TextStyle::Body, 14.0),
             (TextStyle::Button, 14.0),
-            (TextStyle::Small, 12.0),
+            (TextStyle::Small, SMALL_TEXT_SIZE),
             (TextStyle::Heading, 16.0),
         ] {
             style.text_styles.insert(kind, FontId::proportional(size));
         }
         style
             .text_styles
-            .insert(TextStyle::Monospace, FontId::monospace(12.0));
+            .insert(TextStyle::Monospace, FontId::monospace(14.0));
         ctx.set_style(style);
     }
     pub fn load(root: &Path) -> Self {

@@ -1,7 +1,7 @@
 use super::{
     chrome,
     icons::Icon,
-    theme::{Palette, Theme},
+    theme::{Palette, Theme, SMALL_TEXT_SIZE},
     App, Page,
 };
 use eframe::egui::{self, Align, Color32, Frame, Layout, Margin, RichText, Stroke};
@@ -19,7 +19,7 @@ fn is_error(line: &str) -> bool {
 }
 fn section(ui: &mut egui::Ui, label: &str, p: Palette) {
     ui.add_space(18.0);
-    ui.label(RichText::new(label).size(12.0).color(p.muted));
+    ui.label(RichText::new(label).size(SMALL_TEXT_SIZE).color(p.muted));
     ui.add_space(5.0);
 }
 fn panel(fill: Color32) -> Frame {
@@ -99,14 +99,18 @@ impl App {
                         ui.add(egui::Spinner::new().size(12.0));
                     }
                     ui.add(
-                        egui::Label::new(RichText::new(&self.notice).size(11.0).color(p.muted))
-                            .truncate(),
+                        egui::Label::new(
+                            RichText::new(&self.notice)
+                                .size(SMALL_TEXT_SIZE)
+                                .color(p.muted),
+                        )
+                        .truncate(),
                     )
                     .on_hover_text(&self.notice);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.label(
                             RichText::new(format!("{} 条记录", self.logs.len()))
-                                .size(11.0)
+                                .size(SMALL_TEXT_SIZE)
                                 .color(p.muted),
                         );
                     });
@@ -213,7 +217,7 @@ impl App {
     }
     fn navigation(&mut self, ui: &mut egui::Ui, p: Palette) {
         ui.add_space(2.0);
-        ui.label(RichText::new("工作区").strong().size(12.0));
+        ui.label(RichText::new("工作区").strong().size(SMALL_TEXT_SIZE));
         section(ui, "控制台", p);
         for (scope, label) in [
             (LogScope::All, "全部日志"),
@@ -279,13 +283,17 @@ impl App {
                         .unwrap_or_default()
                         .to_string_lossy(),
                 )
-                .size(11.0)
+                .size(SMALL_TEXT_SIZE)
                 .color(p.muted),
             )
             .wrap(),
         );
         ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
-            ui.label(RichText::new("本地工作区").size(11.0).color(p.muted));
+            ui.label(
+                RichText::new("本地工作区")
+                    .size(SMALL_TEXT_SIZE)
+                    .color(p.muted),
+            );
         });
     }
     fn actions(&mut self, ui: &mut egui::Ui, p: Palette) {
@@ -353,7 +361,7 @@ impl App {
     fn console(&mut self, ui: &mut egui::Ui, p: Palette) {
         ui.horizontal(|ui| {
             ui.label(RichText::new("云脚本").size(15.0).strong());
-            ui.label(RichText::new("日志").size(12.0).color(p.muted));
+            ui.label(RichText::new("日志").size(SMALL_TEXT_SIZE).color(p.muted));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if self.icons.button(ui, Icon::Trash, "清空显示").clicked() {
                     self.logs.clear();
@@ -373,7 +381,7 @@ impl App {
                 ui.add_space(4.0);
                 ui.label(
                     RichText::new("启动房间后，云脚本输出会显示在这里")
-                        .size(12.0)
+                        .size(SMALL_TEXT_SIZE)
                         .color(p.muted),
                 );
                 ui.add_space(18.0);
@@ -439,7 +447,7 @@ impl App {
                                     egui::Label::new(
                                         RichText::new(format!("{:03}", number + 1))
                                             .monospace()
-                                            .size(10.0)
+                                            .size(SMALL_TEXT_SIZE)
                                             .color(p.muted),
                                     ),
                                 );
@@ -452,21 +460,21 @@ impl App {
                                 };
                                 ui.add_sized(
                                     [42.0, 21.0],
-                                    egui::Label::new(RichText::new(source).size(10.5).color(
-                                        if is_error(line) {
-                                            Color32::from_rgb(212, 100, 100)
-                                        } else {
-                                            p.muted
-                                        },
-                                    )),
+                                    egui::Label::new(
+                                        RichText::new(source).size(SMALL_TEXT_SIZE).color(
+                                            if is_error(line) {
+                                                Color32::from_rgb(212, 100, 100)
+                                            } else {
+                                                p.muted
+                                            },
+                                        ),
+                                    ),
                                 );
                                 if ui
                                     .add(
-                                        egui::Label::new(
-                                            RichText::new(line).monospace().size(12.0),
-                                        )
-                                        .truncate()
-                                        .sense(egui::Sense::click()),
+                                        egui::Label::new(RichText::new(line).monospace())
+                                            .truncate()
+                                            .sense(egui::Sense::click()),
                                     )
                                     .on_hover_text(line)
                                     .clicked()
@@ -481,7 +489,7 @@ impl App {
     }
     fn inspector(&mut self, ui: &mut egui::Ui, p: Palette) {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("详情").strong().size(12.0));
+            ui.label(RichText::new("详情").strong().size(SMALL_TEXT_SIZE));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if self.icons.button(ui, Icon::Inspector, "收起详情").clicked() {
                     self.details_open = false;
@@ -506,17 +514,29 @@ impl App {
                             } else {
                                 "未启动"
                             })
-                            .size(11.0)
+                            .size(SMALL_TEXT_SIZE)
                             .color(p.muted),
                         );
                     });
                 });
             });
+        // 长路径和较大字号只滚动详情内容，配置入口始终保留在底部。
+        egui::TopBottomPanel::bottom("inspector_actions")
+            .frame(Frame::none().inner_margin(Margin::symmetric(0.0, 8.0)))
+            .show_inside(ui, |ui| {
+                if self
+                    .icons
+                    .action(ui, Icon::Settings, "编辑配置", true)
+                    .clicked()
+                {
+                    self.page = Page::Settings;
+                }
+            });
         egui::ScrollArea::vertical().show(ui, |ui| {
             if let Some(line) = self.selected_log.clone() {
                 section(ui, "选中日志", p);
                 ui.add(
-                    egui::Label::new(RichText::new(&line).monospace().size(11.5))
+                    egui::Label::new(RichText::new(&line).monospace())
                         .wrap()
                         .selectable(true),
                 );
@@ -537,7 +557,7 @@ impl App {
                 self.path_detail(ui, "目录", &config.archives, p);
                 ui.label(
                     RichText::new("玩家 0 / 玩家 1 · 独立 INI")
-                        .size(11.0)
+                        .size(SMALL_TEXT_SIZE)
                         .color(p.muted),
                 );
                 section(ui, "运行设置", p);
@@ -553,21 +573,13 @@ impl App {
                         ui.label(format!("{} 秒", config.startup_timeout));
                     });
                 });
-                ui.add_space(16.0);
-                if self
-                    .icons
-                    .action(ui, Icon::Settings, "编辑配置", true)
-                    .clicked()
-                {
-                    self.page = Page::Settings;
-                }
             }
         });
     }
     fn path_detail(&mut self, ui: &mut egui::Ui, label: &str, path: &Path, p: Palette) {
-        ui.label(RichText::new(label).size(12.0).color(p.muted));
+        ui.label(RichText::new(label).size(SMALL_TEXT_SIZE).color(p.muted));
         ui.add(
-            egui::Label::new(RichText::new(path.to_string_lossy()).size(12.0))
+            egui::Label::new(RichText::new(path.to_string_lossy()).size(SMALL_TEXT_SIZE))
                 .wrap()
                 .selectable(true),
         );
@@ -578,7 +590,7 @@ impl App {
         ui.add_space(5.0);
         ui.label(
             RichText::new("共用一套魔兽，每位玩家独立保存")
-                .size(12.0)
+                .size(SMALL_TEXT_SIZE)
                 .color(p.muted),
         );
         ui.add_space(20.0);

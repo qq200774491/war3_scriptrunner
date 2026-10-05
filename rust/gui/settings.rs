@@ -1,3 +1,4 @@
+use super::theme::SMALL_TEXT_SIZE;
 use eframe::egui::{self, Ui};
 use scriptroom::config::Config;
 use std::path::{Path, PathBuf};
@@ -59,7 +60,7 @@ impl Draft {
         ui.add_space(5.0);
         ui.label(
             egui::RichText::new("地图、脚本与存档的运行位置")
-                .size(12.0)
+                .size(SMALL_TEXT_SIZE)
                 .color(p.muted),
         );
         ui.add_space(22.0);
@@ -73,7 +74,7 @@ impl Draft {
             this.path(ui, icons, 3, "存档目录", true);
             ui.label(
                 egui::RichText::new("按玩家分别保存，重新启动后继续读取")
-                    .size(11.0)
+                    .size(SMALL_TEXT_SIZE)
                     .color(p.muted),
             );
         });
@@ -102,7 +103,7 @@ impl Draft {
         label: &str,
         content: impl FnOnce(&mut Self, &mut Ui),
     ) {
-        ui.label(egui::RichText::new(label).size(12.0).strong());
+        ui.label(egui::RichText::new(label).size(SMALL_TEXT_SIZE).strong());
         ui.add_space(7.0);
         egui::Frame::none()
             .fill(p.panel)

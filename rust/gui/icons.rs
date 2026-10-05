@@ -57,6 +57,35 @@ struct Contour {
     closed: bool,
     width: f32,
 }
+impl Contour {
+    fn pixel_aligned_points(&self, origin: Vec2, scale: f32, stroke_pixels: f32) -> Vec<Pos2> {
+        let bounds = Rect::from_points(&self.points);
+        let min = origin + bounds.min.to_vec2() * scale;
+        let max = origin + bounds.max.to_vec2() * scale;
+        // 奇数像素描边的中心落在半像素上，偶数像素描边落在整数上。
+        let phase = Vec2::splat((stroke_pixels % 2.0) * 0.5);
+        let aligned_min = (min - phase).round() + phase;
+        let aligned_max = (max - phase).round() + phase;
+        let align = |value: f32, start: f32, end: f32, target_start: f32, target_end: f32| {
+            if end > start {
+                target_start + (value - start) * (target_end - target_start) / (end - start)
+            } else {
+                target_start
+            }
+        };
+        // 连续变换整个轮廓，保留曲线平滑度，避免逐点取整使圆弧变成锯齿。
+        self.points
+            .iter()
+            .map(|point| {
+                let physical = origin + point.to_vec2() * scale;
+                egui::pos2(
+                    align(physical.x, min.x, max.x, aligned_min.x, aligned_max.x),
+                    align(physical.y, min.y, max.y, aligned_min.y, aligned_max.y),
+                )
+            })
+            .collect()
+    }
+}
 fn contours(svg: &str) -> Vec<Contour> {
     let tree = usvg::Tree::from_str(svg, &usvg::Options::default()).expect("bundled Tabler SVG");
     let mut result = Vec::new();
@@ -147,9 +176,13 @@ impl VectorIcon {
         for path in self.contours.iter() {
             let stroke_pixels = (path.width * scale * pixels_per_point).round().max(1.0);
             let points = path
-                .points
-                .iter()
-                .map(|point| (origin + point.to_vec2() * scale).to_pos2())
+                .pixel_aligned_points(
+                    origin * pixels_per_point,
+                    scale * pixels_per_point,
+                    stroke_pixels,
+                )
+                .into_iter()
+                .map(|point| point / pixels_per_point)
                 .collect();
             ui.painter().add(egui::epaint::PathShape {
                 points,
