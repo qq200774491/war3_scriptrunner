@@ -5,21 +5,119 @@
             "label": "ScriptRoom: 打包并安装（当前用户）",
             "type": "process",
             "command": "powershell.exe",
-            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/tools/install_rust.ps1"],
-            "options": { "cwd": "${workspaceFolder}" },
-            "group": { "kind": "build", "isDefault": true },
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/tools/install_rust.ps1"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
             "problemMatcher": [],
-            "presentation": { "reveal": "always", "panel": "dedicated" }
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
         },
         {
             "label": "ScriptRoom: 打包便携版",
             "type": "process",
             "command": "powershell.exe",
-            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/tools/package_rust.ps1"],
-            "options": { "cwd": "${workspaceFolder}" },
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/tools/package_rust.ps1"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
             "group": "build",
             "problemMatcher": [],
-            "presentation": { "reveal": "always", "panel": "dedicated" }
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "ScriptRoom: 启动 GUI",
+            "type": "process",
+            "command": "${workspaceFolder}/build/package/ScriptRoom-Rust/ScriptRoom.exe",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}/build/package/ScriptRoom-Rust"
+            },
+            "dependsOn": "ScriptRoom: 打包便携版",
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "ScriptRoom: 启动双端测试（GUI）",
+            "type": "process",
+            "command": "${workspaceFolder}/build/package/ScriptRoom-Rust/ScriptRoom.exe",
+            "args": [
+                "--start"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/build/package/ScriptRoom-Rust"
+            },
+            "dependsOn": "ScriptRoom: 打包便携版",
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "ScriptRoom: 启动双端测试（CLI）",
+            "type": "process",
+            "command": "${workspaceFolder}/build/package/ScriptRoom-Rust/ScriptRoomCLI.exe",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}/build/package/ScriptRoom-Rust"
+            },
+            "dependsOn": "ScriptRoom: 打包便携版",
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "group": "test"
+        },
+        {
+            "label": "ScriptRoom: 检查测试配置",
+            "type": "process",
+            "command": "${workspaceFolder}/build/package/ScriptRoom-Rust/ScriptRoomCLI.exe",
+            "args": [
+                "--check"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/build/package/ScriptRoom-Rust"
+            },
+            "dependsOn": "ScriptRoom: 打包便携版",
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
         }
     ]
 }
