@@ -2,7 +2,7 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "ScriptRoom: 打包并安装（当前用户）",
+            "label": "ScriptRoom: 生成安装包（Setup.exe）",
             "type": "process",
             "command": "powershell.exe",
             "args": [
@@ -10,7 +10,7 @@
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                "${workspaceFolder}/tools/install_rust.ps1"
+                "${workspaceFolder}/tools/package_installer.ps1"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -19,27 +19,6 @@
                 "kind": "build",
                 "isDefault": true
             },
-            "problemMatcher": [],
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            }
-        },
-        {
-            "label": "ScriptRoom: 打包便携版",
-            "type": "process",
-            "command": "powershell.exe",
-            "args": [
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                "${workspaceFolder}/tools/package_rust.ps1"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "group": "build",
             "problemMatcher": [],
             "presentation": {
                 "reveal": "always",

@@ -35,9 +35,13 @@ Copy-Item 本地测试配置.example.json 本地测试配置.json
 
 ### 在 VS Code 中打包并安装
 
-准备好上面的构建工具和本机配置后，按 `Ctrl+Shift+B` 执行默认任务 **ScriptRoom: 打包并安装（当前用户）**。任务会编译 Release 版本，安装到 `%LOCALAPPDATA%\Programs\ScriptRoom`，检查配置并创建开始菜单快捷方式，无需管理员权限。安装完成后可从开始菜单打开 ScriptRoom。
+准备好上面的构建工具和本机配置后，按 `Ctrl+Shift+B` 执行默认任务 **ScriptRoom: 生成安装包（Setup.exe）**，得到 `build/package/installer/ScriptRoom-Setup.exe`。双击该文件可选择安装目录、创建开始菜单快捷方式，并在 Windows 设置中卸载。默认安装到当前用户的 `%LOCALAPPDATA%\Programs\ScriptRoom`，无需管理员权限。升级安装和卸载均保留已有配置与存档。首次安装提供示例配置，需要填写本机实际路径。
 
-“终端 → 运行任务”中也可选择 **ScriptRoom: 打包便携版**，输出到上述发行目录。这里的安装任务是本机源码构建安装，不生成单文件 Setup 安装包。
+首次生成安装包会下载并验证官方 Inno Setup 构建工具，以便携模式放在 `build/tools`；也可使用 `tools/package_installer.ps1 -Compiler <ISCC.exe 路径>` 指定已安装的编译器。安装包只包含正式程序资源，不包含本机地图、云脚本、存档和测试日志。
+
+**ScriptRoom: 打包并安装（当前用户）** 仍可在“终端 → 运行任务”中选择，用于在开发机上直接编译并安装。
+
+“终端 → 运行任务”中也可选择 **ScriptRoom: 打包便携版**，输出到上述发行目录。安装包生成和本机直接安装是两个独立任务。
 
 测试入口位于“终端 → 运行任务”：**ScriptRoom: 启动 GUI** 打开工作台；**ScriptRoom: 启动双端测试（GUI）** 打开工作台并自动启动当前配置的两个客户端；**ScriptRoom: 启动双端测试（CLI）** 在终端启动同一测试；**ScriptRoom: 检查测试配置** 只检查路径和运行组件。上述任务先执行便携版打包，确保使用当前代码。也可运行 VS Code 默认测试任务启动 GUI 双端测试。
 
