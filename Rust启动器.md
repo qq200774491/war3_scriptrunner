@@ -32,6 +32,8 @@ Ctrl+C 或创建指定的 stop 文件会停止服务。重新运行前删除旧 
 
 需要 Windows、MSVC、稳定版 Rust、CMake。无需 Python 运行时。原版 DLL 与 32 位原生组件仍保留。
 
+CAME 保护地图使用独立的启动适配，避免平台预初始化与地图 VM 重建暴雪全局时重复分配对象，造成加入端首帧失步、存档一直停在 0%。适配只支持已验证的 KKWE 平台插件 ABI，版本不匹配会报告 `unsupported kkapi protected map bootstrap ABI`；普通 MPQ 地图保持原有初始化路径。建房菜单预热为 3 秒，之后还需等待地图实际加载和房间就绪。
+
 ```powershell
 .\tools\package_rust.ps1
 ```

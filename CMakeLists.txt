@@ -16,7 +16,7 @@ add_library(detours STATIC third_party/detours/src/detours.cpp third_party/detou
 target_include_directories(detours PUBLIC third_party/detours/src)
 target_compile_definitions(detours PRIVATE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
 set_property(TARGET detours PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-add_library(zz_shared_quicktest SHARED quicktest/game_hooks.cpp quicktest/session.cpp quicktest/ini_redirect.cpp quicktest/exports.def)
+add_library(zz_shared_quicktest SHARED quicktest/game_hooks.cpp quicktest/map_bootstrap.cpp quicktest/session.cpp quicktest/ini_redirect.cpp quicktest/exports.def)
 target_compile_features(zz_shared_quicktest PRIVATE cxx_std_20)
 target_compile_definitions(zz_shared_quicktest PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
 target_compile_options(zz_shared_quicktest PRIVATE /W4 /WX /EHsc /utf-8)

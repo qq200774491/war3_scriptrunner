@@ -4,6 +4,7 @@
 #include <detours.h>
 #include "session.hpp"
 #include "ini_redirect.hpp"
+#include "map_bootstrap.hpp"
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -127,6 +128,10 @@ BOOL(__thiscall* CGameWar3_LoadMapSetup)(uint32_t, uint32_t, uint32_t, uint32_t,
 #pragma endregion
 
 quicktest::Session session;
+void report_plugin_failure(const char* message) noexcept {
+    try { session.report_failure(message); }
+    catch (...) { OutputDebugStringA(message); }
+}
 char player_name[16];
 bool join_pending = true;
 
@@ -137,7 +142,7 @@ int player_joined = 1;
 bool leave_is_error = false;
 void(__fastcall* real_CGlueMgr_SetGlueScreen)(uint32_t, uint32_t);
 bool host_pending = true;
-constexpr UINT host_menu_warmup_ms = 5000;
+constexpr UINT host_menu_warmup_ms = 3000;
 void CALLBACK on_host_menu_ready(HWND, UINT, UINT_PTR timer, DWORD) try {
     KillTimer(nullptr, timer);
     session.log("HOST_CREATE_BEGIN");
@@ -226,14 +231,22 @@ uint32_t __fastcall fake_Net_RandomNumber(uint32_t) {
     return 'test';
 }
 BOOL(__thiscall* real_CGameWar3_LoadMapSetup)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
-BOOL __fastcall fake_CGameWar3_LoadMapSetup(uint32_t a1, uint32_t, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) {
-    auto ret = real_CGameWar3_LoadMapSetup(a1, a2, a3, a4, a5);
-    if (!ret) {
-        session.fail("Load map setup failed");
+BOOL __fastcall fake_CGameWar3_LoadMapSetup(uint32_t a1, uint32_t, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) noexcept {
+    try {
+        const quicktest::MapSetupScope setup;
+        const auto result = real_CGameWar3_LoadMapSetup(a1, a2, a3, a4, a5);
+        if (!result) {
+            report_plugin_failure("Load map setup failed");
+            return FALSE;
+        }
+        session.log("MAP_SETUP_LOADED");
+        return result;
+    } catch (const std::exception& error) {
+        report_plugin_failure(error.what());
+    } catch (...) {
+        report_plugin_failure("unexpected map setup exception");
     }
-    session.log("MAP_SETUP_LOADED");
-
-    return ret;
+    return FALSE;
 }
 void(__fastcall* real_NetLeaveGame)(uint32_t, uint32_t, uint32_t);
 void __fastcall fake_NetLeaveGame(uint32_t a1, uint32_t a2, uint32_t a3) {
@@ -400,6 +413,9 @@ bool init_game() {
         return false;
     }
 
+    const auto map = session.options().host ? std::filesystem::path(session.options().map) :
+        std::filesystem::path(L"Maps/Test/Project.w3x");
+    quicktest::install_map_bootstrap(base, map, session);
     strcpy_s(player_name, session.options().player.c_str());
     if (session.options().host) {
         player_count = session.options().players;
@@ -425,6 +441,7 @@ bool init_game() {
 
     }
     else {
+        real_CGameWar3_LoadMapSetup = CGameWar3_LoadMapSetup;
         // 父启动器已限时等到主机准备完成；这里仅做零等待验证。
         session.check_ready();
         // prepare hook function address
@@ -434,6 +451,7 @@ bool init_game() {
         if (DetourTransactionBegin() != NO_ERROR || DetourUpdateThread(GetCurrentThread()) != NO_ERROR)
             session.fail("cannot start hook transaction");
         DetourAttach(&(PVOID&)real_CGlueMgr_SetGlueScreen, fake_CGlueMgr_SetGlueScreen_join);
+        DetourAttach(&(PVOID&)real_CGameWar3_LoadMapSetup, fake_CGameWar3_LoadMapSetup);
         if (DetourTransactionCommit() != NO_ERROR) session.fail("hook transaction failed");
     }
     return true;
@@ -443,7 +461,7 @@ extern "C" __declspec(dllexport) const char* __cdecl PluginName() {
     // loader 用 PluginName + .dll 查找配置与初始化顺序，必须和文件名一致。
     return "zz_shared_quicktest";
 }
-extern "C" __declspec(dllexport) void __cdecl Initialize() {
+extern "C" __declspec(dllexport) void __cdecl Initialize() noexcept {
     try {
         session.configure();
         if (!session.options().ini_path.empty()) {
@@ -451,12 +469,12 @@ extern "C" __declspec(dllexport) void __cdecl Initialize() {
                 session.options().ini_path, session.options().log_path);
             session.log("INI_REDIRECT_READY");
         }
-        if (!init_game()) session.fail("unsupported or unloaded Game.dll");
+        if (!init_game()) throw std::runtime_error("unsupported or unloaded Game.dll");
         session.log("HOOKS_READY");
     } catch (const std::exception& error) {
-        session.fail(error.what());
+        report_plugin_failure(error.what());
     } catch (...) {
-        session.fail("unexpected initialization failure");
+        report_plugin_failure("unexpected initialization failure");
     }
 }
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
