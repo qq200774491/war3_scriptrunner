@@ -97,6 +97,21 @@ Copy-Item 本地测试配置.example.json 本地测试配置.json
 
 备份时先退出游戏和云服务，再复制整个存档目录。玩家身份按本地槽位区分，不是平台账号；本工具不导入线上存档，也不提供跨电脑共享房间或断线重连。
 
+## 参考项目与致谢
+
+感谢以下项目及其作者。本项目使用或参考的部分如下：
+
+| 项目 | 使用方式 | 本项目中的用途 |
+|---|---|---|
+| [war3_quicktest](https://github.com/shuen4/war3_quicktest) | 源码改编 | `quicktest/game_hooks.cpp` 基于其实现，沿用魔兽快速建房、加入及相关游戏适配逻辑。改编来源见 [quicktest 说明](quicktest/README.md)，保留 [MIT 许可证](quicktest/LICENSE)。 |
+| [Microsoft Detours](https://github.com/microsoft/Detours) | 源码依赖 | 用于游戏适配层的 Windows 函数拦截；随仓库包含 v4.0.1 源码与 [MIT 许可证](third_party/detours/LICENSE.md)。 |
+| [egui / eframe](https://github.com/emilk/egui) | GUI 框架 | Rust 桌面启动器的窗口、控件、布局与交互。 |
+| [Tabler Icons](https://github.com/tabler/tabler-icons) | 图标资源 | 使用 outline SVG 图标绘制导航、工具栏和操作按钮；保留 [MIT 许可证](rust/gui/assets/tabler/LICENSE)。 |
+| [Serpent](https://github.com/dolag233/Serpent) | 界面设计参考 | 参考左侧导航、紧凑工具栏、右侧详情栏及整体工作区布局。 |
+| ShadowWorks（本地项目） | 界面设计参考 | 参考深灰蓝配色、紧凑控件与信息层级。 |
+
+云脚本执行使用 KKWE 环境中的原版 `scriptrunner.dll`。第三方源码、资源和运行库的版权及许可分别归其原作者；各项依赖版本见 `Cargo.toml`、`Cargo.lock` 和 [构建依赖说明](third_party/README.md)。
+
 ## 更多说明
 
 - [Rust 启动器使用说明](Rust启动器.md)：界面操作、命令行与构建选项。
