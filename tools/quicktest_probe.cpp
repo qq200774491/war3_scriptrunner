@@ -19,6 +19,12 @@ int wmain() {
                 } else if (action == 'f') {
                     session.report_failure("probe recoverable lobby failure");
                     std::cout << "FAILED_REPORTED\n" << std::flush;
+                } else if (action == 'r') {
+                    const auto result = quicktest::recoverable_callback(session, []() -> BOOL {
+                        throw std::runtime_error("probe recoverable callback failure");
+                    });
+                    if (result != FALSE) throw std::runtime_error("invalid callback failure result");
+                    std::cout << "FAILED_REPORTED\n" << std::flush;
                 } else if (action == 'e') {
                     quicktest::game_callback(session, [] { throw std::runtime_error("probe callback failure"); });
                 } else if (action == 's') {

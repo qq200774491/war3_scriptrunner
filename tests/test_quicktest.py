@@ -107,9 +107,10 @@ class QuicktestTests(unittest.IsolatedAsyncioTestCase):
             try:
                 await signals.wait(3)
                 self.assertEqual(await host.stdout.readline(), b'READY\r\n')
-                host.stdin.write(b'mf')
+                host.stdin.write(b'mrf')
                 await host.stdin.drain()
                 self.assertEqual(await host.stdout.readline(), b'Maps\\Test\\map.w3x\r\n')
+                self.assertEqual(await host.stdout.readline(), b'FAILED_REPORTED\r\n')
                 self.assertEqual(await host.stdout.readline(), b'FAILED_REPORTED\r\n')
                 with self.assertRaisesRegex(RuntimeError, 'signaled failure'):
                     await signals.wait(1)
@@ -119,6 +120,7 @@ class QuicktestTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await host.stdout.readline(), b'READY_CLOSED\r\n')
                 self.assertIsNone(host.returncode)
                 self.assertEqual(log.read_text().count('HOST_READY'), 1)
+                self.assertIn('FAILED probe recoverable callback failure', log.read_text())
             finally:
                 host.stdin.close()
                 await asyncio.wait_for(host.wait(), 3)
