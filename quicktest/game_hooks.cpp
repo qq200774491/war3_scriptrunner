@@ -6,6 +6,7 @@
 #include "callback_boundary.hpp"
 #include "ini_redirect.hpp"
 #include "map_bootstrap.hpp"
+#include "map_selection.hpp"
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -408,6 +409,7 @@ bool init_game() {
 
     const auto map = session.options().host ? std::filesystem::path(session.options().map) :
         std::filesystem::path(L"Maps/Test/Project.w3x");
+    quicktest::install_map_selection(reinterpret_cast<std::uintptr_t>(SRegLoadString), map, session);
     quicktest::install_map_bootstrap(base, map, session);
     strcpy_s(player_name, session.options().player.c_str());
     if (session.options().host) {
