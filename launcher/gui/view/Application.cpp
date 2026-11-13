@@ -103,6 +103,7 @@ void Application::build_view() {
     Router.set_after_event([this] { refresh(); });
     if (Chrome) {
         Chrome->round_corners(Tree.root());
+        Chrome->set_outline(palette_of(Model.theme()).Outline);
     }
 }
 
@@ -113,6 +114,9 @@ int Application::run() {
 void Application::refresh() {
     Model.tick(AppModel::Clock::now());
     View->sync();
+    if (Chrome) {
+        Chrome->set_outline(palette_of(Model.theme()).Outline);
+    }
     arm_timer();
     if (Model.quit_requested()) {
         request_window_close();

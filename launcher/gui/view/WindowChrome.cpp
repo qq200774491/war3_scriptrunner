@@ -1,5 +1,6 @@
 #include "WindowChrome.h"
 
+#include "CornerMask.h"
 #include "RoundedCorners.h"
 
 #include <array>
@@ -19,6 +20,7 @@ constexpr int ResizeBorder = 6;
 constexpr int CornerRadius = 8;
 constexpr DWORD CornerPreference = 33; // DWMWA_WINDOW_CORNER_PREFERENCE，Win11 SDK 才有这个名字
 constexpr int RoundCorners = 2;        // DWMWCP_ROUND
+constexpr DWORD BorderColor = 34;      // DWMWA_BORDER_COLOR
 
 constexpr std::array<std::array<LRESULT, 3>, 3> EdgeHits = {{
     {HTTOPLEFT, HTTOP, HTTOPRIGHT},
@@ -80,7 +82,8 @@ WindowChrome::WindowChrome(BKWindow *Target, BKContext *Ui, int Caption, int Cap
     if (!Attached) {
         return;
     }
-    if (system_rounds_corners()) {
+    SystemCorners = system_rounds_corners();
+    if (SystemCorners) {
         DwmSetWindowAttribute(Window, CornerPreference, &RoundCorners, sizeof(RoundCorners));
     } else {
         FadesCorners = composite_with_alpha(Window, BK_window_raster(Target));
@@ -110,10 +113,37 @@ void WindowChrome::fit_maximized(RECT &Proposed) const {
     Proposed.bottom -= Inset;
 }
 
-void WindowChrome::round_corners(Node Root) const {
-    if (FadesCorners) {
-        // 只捕获窗口句柄：节点树比本对象活得久，窗口销毁后 IsZoomed 只会返回假。
-        add_rounded_corners(Root, px(CornerRadius), [Target = Window] { return IsZoomed(Target) == 0; });
+void WindowChrome::round_corners(Node Root) {
+    if (!FadesCorners) {
+        return;
+    }
+    // 只捕获窗口句柄和颜色格子：节点树比本对象活得久，窗口销毁后 IsZoomed 只会返回假。
+    FrameNodes = add_rounded_corners(
+        Root, px(CornerRadius),
+        [Target = Window] { return outline_mode(false, IsZoomed(Target) != 0) == OutlineMode::Drawn; },
+        [Color = Outline] { return *Color; });
+}
+
+void WindowChrome::set_outline(Rgb Color) {
+    if (!Attached || AppliedOutline == Color) {
+        return;
+    }
+    AppliedOutline = Color;
+    if (SystemCorners) {
+        const COLORREF Border = RGB(Color.R, Color.G, Color.B);
+        DwmSetWindowAttribute(Window, BorderColor, &Border, sizeof(Border));
+        return;
+    }
+    *Outline = (std::uint32_t(Color.R) << 16) | (std::uint32_t(Color.G) << 8) | std::uint32_t(Color.B);
+    for (const Surface *Node : FrameNodes) {
+        Node->invalidate();
+    }
+}
+
+// 最大化时把圆角和描边节点藏起来：贴着屏幕顶边的那排像素要能拖动窗口，不能被它们接住。
+void WindowChrome::show_frame(bool Shown) const {
+    for (const Surface *Node : FrameNodes) {
+        Node->node().set_visible(Shown);
     }
 }
 
@@ -153,6 +183,9 @@ LRESULT CALLBACK WindowChrome::on_message(HWND Target, UINT Message, WPARAM WPar
         return Self.hit_test(LParam);
     case WM_NCACTIVATE:
         return DefWindowProcW(Target, Message, WParam, -1);
+    case WM_SIZE:
+        Self.show_frame(WParam != SIZE_MAXIMIZED);
+        break;
     case WM_NCDESTROY:
         RemoveWindowSubclass(Target, &WindowChrome::on_message, SubclassId);
         Self.Attached = false;
