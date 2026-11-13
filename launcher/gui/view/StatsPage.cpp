@@ -3,8 +3,10 @@
 #include "Geometry.h"
 #include "Paint.h"
 
+#include <algorithm>
 #include <format>
 #include <string>
+#include <vector>
 
 namespace scriptroom::gui {
 
@@ -17,7 +19,6 @@ constexpr int SmallHeight = 130;
 constexpr int TitleHeight = 28;
 constexpr int CellGap = 24;
 constexpr int StackBelow = 720; ///< 主区域窄于它时下面两张图上下叠放
-constexpr int RangeOption = 64;
 constexpr int NameColumn = 120;
 
 constexpr std::array<const char *, 6> TableHeads = {"玩家", "请求", "失败", "平均", "P95", "最大"};
@@ -86,12 +87,17 @@ void StatsPage::build_toolbar(Node Toolbar) {
              {.Scale = TitleText, .Bold = true});
     Pause = Ui.pill(Toolbar, {.Side = Edge::Right, .PadRight = 16}, "暂停刷新", Tone::Secondary,
                     [&Model] { Model.set_stats_paused(!Model.stats_paused()); });
-    Ranges = Ui.surface(
-        Toolbar,
-        {.Side = Edge::Right, .PadRight = 12, .Width = RangeOption * static_cast<int>(AllTrendRanges.size()),
-         .Height = geometry::ButtonHeight},
-        [this](BuiRaster *Target, const Surface::Box &Area, const Surface &) { paint_ranges(Target, Area); },
-        [this](const Surface::Pointer &Where) { pick_range(Where); });
+    std::vector<std::string> Labels;
+    for (const TrendRange Range : AllTrendRanges) {
+        Labels.emplace_back(range_label(Range));
+    }
+    Ranges = Segmented(
+        Ui, Toolbar, {.Side = Edge::Right, .PadRight = 12}, std::move(Labels),
+        [&Model] {
+            const auto Found = std::find(AllTrendRanges.begin(), AllTrendRanges.end(), Model.stats_range());
+            return static_cast<std::size_t>(Found - AllTrendRanges.begin());
+        },
+        [&Model](std::size_t Index) { Model.set_stats_range(AllTrendRanges[Index]); });
 }
 
 void StatsPage::build_metrics(Node Parent) {
@@ -157,33 +163,6 @@ void StatsPage::paint_table(BuiRaster *Target, const Surface::Box &Area) const {
     }
 }
 
-void StatsPage::paint_ranges(BuiRaster *Target, const Surface::Box &Area) const {
-    const Palette &Colors = Services.Ui.style().palette();
-    const float Option = Area.W / static_cast<float>(AllTrendRanges.size());
-    for (std::size_t Index = 0; Index < AllTrendRanges.size(); ++Index) {
-        const bool Chosen = AllTrendRanges[Index] == Services.Model.stats_range();
-        const float X = Area.X + Option * static_cast<float>(Index);
-        if (Chosen) {
-            paint::round_rect(Target, X, Area.Y, Option, Area.H, Area.H * 0.5f, Colors.Overlay, 0.12f);
-        }
-        paint::text(Target, X, Area.Y, Option, Area.H, range_label(AllTrendRanges[Index]),
-                    Chosen ? Colors.Text : Colors.Text3, paint::Align::Center);
-    }
-}
-
-void StatsPage::pick_range(const Surface::Pointer &Where) const {
-    int Rect[4] = {};
-    BK_node_rect(Ranges->node().raw(), Rect);
-    if (Rect[2] <= 0) {
-        return;
-    }
-    const auto Index = static_cast<std::size_t>(Where.X * static_cast<float>(AllTrendRanges.size()) /
-                                                static_cast<float>(Rect[2]));
-    if (Index < AllTrendRanges.size()) {
-        Services.Model.set_stats_range(AllTrendRanges[Index]);
-    }
-}
-
 std::uint64_t StatsPage::data_stamp() const {
     const AppModel &Model = Services.Model;
     const StatsBoard &Board = Model.stats();
@@ -205,7 +184,7 @@ void StatsPage::sync() {
     const StatsBoard &Board = Model.stats();
     Pause.set_label(Model.stats_paused() ? "继续刷新" : "暂停刷新");
     Pause.node().set_visible(Board.has_data() || Model.stats_paused());
-    Ranges->node().set_visible(Board.has_data());
+    Ranges.node().set_visible(Board.has_data());
     Empty.set_visible(!Board.has_data());
     Content.set_visible(Board.has_data());
     if (!Board.has_data()) {
@@ -231,7 +210,7 @@ void StatsPage::sync() {
     if (Next != Stamp) {
         Stamp = Next;
         Table->invalidate();
-        Ranges->invalidate();
+        Ranges.refresh();
         Latency->refresh();
         Rates->refresh();
         Backlog->refresh();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Segmented.h"
 #include "TrendChart.h"
 #include "ViewServices.h"
 
@@ -30,8 +31,6 @@ private:
     void build_metrics(Node Parent);
     void layout_bottom(bool Stacked);
     void paint_table(BuiRaster *Target, const Surface::Box &Area) const;
-    void paint_ranges(BuiRaster *Target, const Surface::Box &Area) const;
-    void pick_range(const Surface::Pointer &Where) const;
     std::uint64_t data_stamp() const;
 
     const ViewServices &Services;
@@ -40,7 +39,7 @@ private:
     Node Content;
     std::array<Metric, 4> Metrics;
     Surface *Table = nullptr;
-    Surface *Ranges = nullptr;
+    Segmented Ranges;
     PillButton Pause;
     std::unique_ptr<TrendChart> Latency;
     Node Bottom;
