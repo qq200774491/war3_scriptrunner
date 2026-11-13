@@ -78,6 +78,10 @@
 
 要 CMake 3.24 以上、Visual Studio 2022（C++ 工具里 x64 和 Win32 都要装）、Git。构建界面时会从 GitHub 拉一份 BUI。
 
+> 这个项目最早是 Rust 写的，一次编译留下 650 MB 的 `target/`，硬盘被拉满，就整个改回了 C++。
+>
+> <img src="快拿掉.svg" width="240" alt="快拿掉快拿掉">
+
 魔兽和 `scriptrunner.dll` 都是 32 位的，所以脚本宿主和游戏插件要编成 32 位，启动器本身是 64 位，分两次编：
 
 ```powershell
