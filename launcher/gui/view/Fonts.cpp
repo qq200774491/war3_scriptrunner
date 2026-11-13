@@ -38,18 +38,18 @@ std::vector<char> read_first_font(const fs::path &Directory, std::initializer_li
     return {};
 }
 
-/// 注册为默认界面字体（family 为空）。BUI 会复制字体数据，所以调用后即可释放 Data。
-bool register_face(const std::vector<char> &Data, int Style) {
-    return !Data.empty() && BUI_text_add_font("", Style, Data.data(), static_cast<int>(Data.size())) != 0;
+bool register_face(const char *Family, const std::vector<char> &Data, int Style) {
+    return !Data.empty() && BUI_text_add_font(Family, Style, Data.data(), static_cast<int>(Data.size())) != 0;
 }
 
 } // namespace
 
 bool use_system_cjk_font() {
     const fs::path Directory = windows_fonts_directory();
-    const bool Regular = register_face(read_first_font(Directory, {L"msyh.ttc", L"simhei.ttf", L"simsun.ttc"}), 0);
+    const bool Regular = register_face("", read_first_font(Directory, {L"msyh.ttc", L"simhei.ttf", L"simsun.ttc"}), 0);
     // 没有粗体字体时 BUI 会用常规字体合成粗体，所以粗体注册失败不算失败。
-    register_face(read_first_font(Directory, {L"msyhbd.ttc"}), BUI_FONT_BOLD);
+    register_face("", read_first_font(Directory, {L"msyhbd.ttc"}), BUI_FONT_BOLD);
+    register_face(MonoFamily, read_first_font(Directory, {L"CascadiaMono.ttf", L"consola.ttf"}), 0);
     return Regular;
 }
 
