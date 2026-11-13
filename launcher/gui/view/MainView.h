@@ -1,18 +1,18 @@
 #pragma once
 
-#include "ActionBar.h"
+#include "AboutPage.h"
 #include "AppModel.h"
 #include "ArchivesPage.h"
 #include "Builder.h"
 #include "ConsolePage.h"
 #include "DialogLayer.h"
 #include "EventRouter.h"
-#include "HeaderBar.h"
 #include "InspectorPanel.h"
 #include "Navigation.h"
 #include "SettingsPage.h"
 #include "StatusBar.h"
 #include "Styler.h"
+#include "TopBar.h"
 #include "ViewServices.h"
 
 #include <functional>
@@ -46,15 +46,15 @@ private:
     Builder Ui;
     ViewServices Services;
 
-    std::unique_ptr<HeaderBar> Header;
-    std::unique_ptr<StatusBar> Status;
     std::unique_ptr<RailBar> Rail;
+    std::unique_ptr<TopBar> Top;
     std::unique_ptr<NavigationPanel> Navigation;
     std::unique_ptr<InspectorPanel> Inspector;
-    std::unique_ptr<ActionBar> Actions;
+    std::unique_ptr<StatusBar> Status;
     std::unique_ptr<ConsolePage> Console;
     std::unique_ptr<SettingsPage> Settings;
     std::unique_ptr<ArchivesPage> Archives;
+    std::unique_ptr<AboutPage> About;
     std::unique_ptr<DialogLayer> Dialogs;
 
     ThemeKind AppliedTheme;
