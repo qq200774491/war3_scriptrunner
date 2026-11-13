@@ -14,7 +14,7 @@ namespace scriptroom {
 
 namespace fs = std::filesystem;
 
-/// 双人开局所处的阶段。
+/// 局域网开局所处的阶段。
 enum class LaunchPhase {
     WaitingForLan, ///< 房主尚未创建局域网房间
     LanStarted,    ///< 已创建，之后不再回退
@@ -31,7 +31,7 @@ std::string lua_literal(std::string_view Text);
 /// 检查配置文件、原生组件、魔兽文件、编辑器插件和 Game.dll 版本；失败时抛出 Error。
 void check_setup(const fs::path &Root, const Config &Settings);
 
-/// 完整的一轮双人测试：整理存档与目录、起房间与云脚本、依次启动两个客户端并监测，
+/// 完整的一轮测试：整理存档与目录、起房间与云脚本、依次启动配置里的几个客户端（玩家 0 建房）并监测，
 /// 直到收到停止信号、时限到或出错。游戏窗口在服务结束后继续运行。
 /// 日志写入 Output（同时落盘到 build/game）；出错时抛出 Error。
 /// Stats 在云服务启动时清零并开始计时，停止后保留这一轮的数据；可为空。

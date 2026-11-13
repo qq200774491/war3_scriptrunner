@@ -93,7 +93,7 @@ void require_file(const fs::path &Path) {
     require(fs::is_regular_file(Path, Code), std::format("缺少文件：{}", shown(Path)));
 }
 
-/// 准备共用魔兽目录、客户端存档、地图、插件与启动配置；返回两位玩家的 INI 与编辑器暂存目录。
+/// 准备共用魔兽目录、客户端存档、地图、插件与启动配置；返回每位玩家的 INI 与编辑器暂存目录。
 struct Prepared {
     std::vector<fs::path> ClientArchives;
     fs::path StagedEditor;
@@ -125,7 +125,7 @@ Prepared prepare(const fs::path &Root, const Config &Settings) {
     }
     const fs::path Legacy = Settings.Game / L"dz_w3_plugin.ini";
     Prepared Result;
-    Result.ClientArchives = prepare_client_archives(Settings.Archives / L"clients", 2,
+    Result.ClientArchives = prepare_client_archives(Settings.Archives / L"clients", Settings.Clients,
                                                     HasPrevious ? std::optional<fs::path>(Legacy) : std::nullopt);
     copy_if_changed(Settings.Map, Settings.Game / L"Maps" / L"Test" / L"Project.w3x");
 
@@ -179,7 +179,7 @@ void install_entry(const fs::path &Root, const Config &Settings, const Room &Act
         lua_literal(shown(native_dir(Root) / L"shared_room_native.dll")), Players, Original);
     require(Settings.LocalEntry.has_filename(), "无入口文件名");
     atomic_write(Settings.Game / Settings.LocalEntry.filename(), Entry);
-    for (int Player = 0; Player < 2; ++Player) {
+    for (std::size_t Player = 0; Player < Settings.Clients; ++Player) {
         atomic_write(Folder / std::format(L"mls-player-{}.log", Player), "");
     }
 }
@@ -193,7 +193,7 @@ GameMonitor launch_client(const fs::path &Root, const Config &Settings, const fs
 
     std::vector<std::string> Args = {shown(Settings.Game / L"war3.exe"), "-window", "-opengl", "-kkwe", shown(Staged)};
     if (Player == 0) {
-        Args.insert(Args.end(), {"-host", "2", "Maps\\Test\\Project.w3x"});
+        Args.insert(Args.end(), {"-host", std::to_string(Settings.Clients), "Maps\\Test\\Project.w3x"});
     } else {
         Args.push_back("-join");
     }
@@ -240,7 +240,7 @@ bool quicktest_signaled(const std::string &RoomId, const char *Suffix) {
 void ensure_game_running(GameMonitor &Client, std::size_t Player) {
     if (const std::optional<std::uint32_t> Code = Client.exit_code()) {
         throw Error(std::format(
-            "{}（玩家 {}，PID {}）在双人开局前已退出，退出码 0x{:08X}；请检查地图加载及 quicktest-{}.log，云端读档尚未开始",
+            "{}（玩家 {}，PID {}）在开局前已退出，退出码 0x{:08X}；请检查地图加载及 quicktest-{}.log，云端读档尚未开始",
             Player == 0 ? "房主" : "加入端", Player, Client.pid(), *Code, Player));
     }
 }
@@ -319,7 +319,7 @@ private:
 };
 
 /// 把游戏日志文件的新增内容转给界面。
-void forward_game_logs(const fs::path &Folder, std::array<std::string, 2> &Previous, RunLog &Log) {
+void forward_game_logs(const fs::path &Folder, std::vector<std::string> &Previous, RunLog &Log) {
     for (std::size_t Player = 0; Player < Previous.size(); ++Player) {
         const std::string Text = utf8_lossy(read_file(Folder / std::format(L"quicktest-{}.log", Player)));
         if (Text == Previous[Player]) {
@@ -366,7 +366,7 @@ public:
         const fs::path Folder = game_work_dir(Root);
         const std::string &RoomId = Active.profiles()[0].Room;
         const Clock::time_point Start = Clock::now();
-        std::array<std::string, 2> Previous;
+        std::vector<std::string> Previous(Settings.Clients);
         Clock::time_point Report = Clock::now();
         while (!Stop.is_requested()) {
             if (Stop.wait_for(Seconds(1))) {
@@ -387,11 +387,11 @@ public:
                     ensure_game_running(Clients[Player], Player);
                 }
                 require(std::chrono::duration<double>(Clock::now() - Start).count() < Settings.StartupTimeout,
-                        "双人开局超时，请检查 quicktest 日志");
+                        "开局超时，请检查 quicktest 日志");
             }
             forward_game_logs(Folder, Previous, Log);
             if (Clock::now() - Report >= Seconds(10)) {
-                Log.log(std::format("[运行] 在线 {}/2；回包 {}；云端 {}", Status.Connected, Status.Delivery,
+                Log.log(std::format("[运行] 在线 {}/{}；回包 {}；云端 {}", Status.Connected, Settings.Clients, Status.Delivery,
                                     Status.Active ? "运行中" : "等待连接"));
                 Report = Clock::now();
             }
@@ -517,8 +517,9 @@ void run_session(const fs::path &Root, const Config &Settings, StopHandle Stop, 
     Host.Dll = Root / L"scriptrunner.dll";
     Host.Scripts = Settings.CloudScripts;
     Host.Archives = Settings.Archives;
+    Host.Players = Settings.Clients;
     std::unique_ptr<Room> Active;
-    Recorder->begin(2);
+    Recorder->begin(Settings.Clients);
     try {
         Active = Room::start(Host, 0, Log.sender(), Recorder);
     } catch (...) {
