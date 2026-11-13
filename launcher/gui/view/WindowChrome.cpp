@@ -1,6 +1,6 @@
 #include "WindowChrome.h"
 
-#include "BuiNode.h"
+#include "RoundedCorners.h"
 
 #include <array>
 #include <string_view>
@@ -38,13 +38,29 @@ bool is_control(BKNode *Hit) {
     return Hit != nullptr && std::string_view(BK_get_str(Hit, "type")) != "frame";
 }
 
-// Win11（构建号 22000 起）由 DWM 给窗口画圆角，Win10 需要自己用窗口区域裁出来。
+// Win11（构建号 22000 起）由 DWM 给窗口画圆角，Win10 要自己画。
 bool system_rounds_corners() {
     using GetVersionFn = LONG(WINAPI *)(PRTL_OSVERSIONINFOW);
     const auto Get = reinterpret_cast<GetVersionFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion"));
     RTL_OSVERSIONINFOW Info = {};
     Info.dwOSVersionInfoSize = sizeof(Info);
     return Get != nullptr && Get(&Info) == 0 && Info.dwBuildNumber >= 22000;
+}
+
+// Win10 的 DWM 只在开了背后模糊时才按客户区像素的 alpha 合成；模糊区域给空区域，就只透明不模糊。
+// GPU 渲染的交换链没有 alpha，这时保持直角。
+bool composite_with_alpha(HWND Window, BuiRaster *Raster) {
+    if (Raster == nullptr || BUI_raster_is_gpu(Raster) != 0 || BUI_raster_gpu_pending(Raster) != 0) {
+        return false;
+    }
+    const HRGN Empty = CreateRectRgn(0, 0, -1, -1);
+    const DWM_BLURBEHIND Blur = {DWM_BB_ENABLE | DWM_BB_BLURREGION, TRUE, Empty, FALSE};
+    const bool Enabled = SUCCEEDED(DwmEnableBlurBehindWindow(Window, &Blur));
+    DeleteObject(Empty);
+    if (Enabled) {
+        BUI_raster_set_alpha(Raster, 1);
+    }
+    return Enabled;
 }
 
 int frame_thickness(HWND Window) {
@@ -54,8 +70,9 @@ int frame_thickness(HWND Window) {
 
 } // namespace
 
-WindowChrome::WindowChrome(HWND Target, BKContext *Ui, int Caption, int CaptionStart)
-    : Window(Target), Context(Ui), CaptionHeight(Caption), CaptionLeft(CaptionStart) {
+WindowChrome::WindowChrome(BKWindow *Target, BKContext *Ui, int Caption, int CaptionStart)
+    : Window(static_cast<HWND>(BK_window_handle(Target))), Context(Ui), CaptionHeight(Caption),
+      CaptionLeft(CaptionStart) {
     if (Window == nullptr) {
         return;
     }
@@ -63,9 +80,10 @@ WindowChrome::WindowChrome(HWND Target, BKContext *Ui, int Caption, int CaptionS
     if (!Attached) {
         return;
     }
-    SystemCorners = system_rounds_corners();
-    if (SystemCorners) {
+    if (system_rounds_corners()) {
         DwmSetWindowAttribute(Window, CornerPreference, &RoundCorners, sizeof(RoundCorners));
+    } else {
+        FadesCorners = composite_with_alpha(Window, BK_window_raster(Target));
     }
     SetWindowPos(Window, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
@@ -92,21 +110,11 @@ void WindowChrome::fit_maximized(RECT &Proposed) const {
     Proposed.bottom -= Inset;
 }
 
-void WindowChrome::clip_corners() const {
-    if (SystemCorners) {
-        return;
+void WindowChrome::round_corners(Node Root) const {
+    if (FadesCorners) {
+        // 只捕获窗口句柄：节点树比本对象活得久，窗口销毁后 IsZoomed 只会返回假。
+        add_rounded_corners(Root, px(CornerRadius), [Target = Window] { return IsZoomed(Target) == 0; });
     }
-    if (IsZoomed(Window) != 0) {
-        SetWindowRgn(Window, nullptr, TRUE);
-        return;
-    }
-    RECT Bounds = {};
-    GetWindowRect(Window, &Bounds);
-    const int Diameter = px(CornerRadius) * 2;
-    // 区域交给系统后由系统释放，这里不能再删除。
-    SetWindowRgn(Window,
-                 CreateRoundRectRgn(0, 0, Bounds.right - Bounds.left + 1, Bounds.bottom - Bounds.top + 1, Diameter, Diameter),
-                 TRUE);
 }
 
 LRESULT WindowChrome::hit_test(LPARAM ScreenPoint) const {
@@ -145,9 +153,6 @@ LRESULT CALLBACK WindowChrome::on_message(HWND Target, UINT Message, WPARAM WPar
         return Self.hit_test(LParam);
     case WM_NCACTIVATE:
         return DefWindowProcW(Target, Message, WParam, -1);
-    case WM_SIZE:
-        Self.clip_corners();
-        break;
     case WM_NCDESTROY:
         RemoveWindowSubclass(Target, &WindowChrome::on_message, SubclassId);
         Self.Attached = false;

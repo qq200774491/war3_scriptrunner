@@ -82,7 +82,7 @@ void Application::open_window() {
     Window = std::make_unique<WindowHandle>(Created);
     const auto Handle = static_cast<HWND>(BK_window_handle(Created));
     apply_app_icon(Handle);
-    Chrome = std::make_unique<WindowChrome>(Handle, Context.get(), geometry::TopBarHeight, geometry::RailWidth);
+    Chrome = std::make_unique<WindowChrome>(Created, Context.get(), geometry::TopBarHeight, geometry::RailWidth);
     Chrome->resize_client(Launch.Width, Launch.Height);
 
     BKWindowCallbacks Callbacks = {};
@@ -101,6 +101,9 @@ void Application::build_view() {
         View->resize(static_cast<int>(Width), static_cast<int>(Height));
     });
     Router.set_after_event([this] { refresh(); });
+    if (Chrome) {
+        Chrome->round_corners(Tree.root());
+    }
 }
 
 int Application::run() {
