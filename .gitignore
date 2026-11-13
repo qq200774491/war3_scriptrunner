@@ -1,21 +1,10 @@
 /build/
-/target/
-__pycache__/
-*.pyc
-/connections.json
-# 本地研究、思路梳理与验收记录，仅在本机保留
-/analysis/
-/启动链与多人可行性.md
-/实施计划.md
-/Rust迁移计划.md
-/design-qa.md
 /third_party/detours/*
 !/third_party/detours/src/
 !/third_party/detours/LICENSE.md
 !/third_party/detours/CREDITS.TXT
 !/third_party/detours/README.md
-
 /界面设置.json
-
-# 每台开发机的真实地图路径和存档配置
 /本地测试配置.json
+/tools/local/
+/.vscode/

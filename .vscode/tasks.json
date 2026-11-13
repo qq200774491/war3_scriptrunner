@@ -10,7 +10,7 @@
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                "${workspaceFolder}/tools/package_installer.ps1"
+                "${workspaceFolder}/tools/local/package_installer.ps1"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -26,12 +26,96 @@
             }
         },
         {
-            "label": "ScriptRoom: 启动 GUI",
+            "label": "ScriptRoom: 打包便携版",
             "type": "process",
-            "command": "${workspaceFolder}/build/package/ScriptRoom-Rust/ScriptRoom.exe",
+            "command": "powershell.exe",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/tools/local/package_launcher.ps1"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "ScriptRoom: 配置启动器（x64）",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "-S",
+                "launcher",
+                "-B",
+                "build/launcher",
+                "-G",
+                "Visual Studio 17 2022",
+                "-A",
+                "x64"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "ScriptRoom: 构建启动器（Release）",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "build/launcher",
+                "--config",
+                "Release",
+                "--parallel"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "ScriptRoom: 配置启动器（x64）",
+            "dependsOrder": "sequence",
+            "group": "build",
+            "problemMatcher": "$msCompile",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "ScriptRoom: 运行启动器测试",
+            "type": "process",
+            "command": "${workspaceFolder}/build/launcher/tests/Release/scriptroom_tests.exe",
             "args": [],
             "options": {
-                "cwd": "${workspaceFolder}/build/package/ScriptRoom-Rust"
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "ScriptRoom: 构建启动器（Release）",
+            "dependsOrder": "sequence",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "ScriptRoom: 启动 GUI",
+            "type": "process",
+            "command": "${workspaceFolder}/build/package/ScriptRoom/ScriptRoom.exe",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}/build/package/ScriptRoom"
             },
             "dependsOn": "ScriptRoom: 打包便携版",
             "dependsOrder": "sequence",
@@ -44,12 +128,12 @@
         {
             "label": "ScriptRoom: 启动双端测试（GUI）",
             "type": "process",
-            "command": "${workspaceFolder}/build/package/ScriptRoom-Rust/ScriptRoom.exe",
+            "command": "${workspaceFolder}/build/package/ScriptRoom/ScriptRoom.exe",
             "args": [
                 "--start"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/build/package/ScriptRoom-Rust"
+                "cwd": "${workspaceFolder}/build/package/ScriptRoom"
             },
             "dependsOn": "ScriptRoom: 打包便携版",
             "dependsOrder": "sequence",
@@ -66,10 +150,10 @@
         {
             "label": "ScriptRoom: 启动双端测试（CLI）",
             "type": "process",
-            "command": "${workspaceFolder}/build/package/ScriptRoom-Rust/ScriptRoomCLI.exe",
+            "command": "${workspaceFolder}/build/package/ScriptRoom/ScriptRoomCLI.exe",
             "args": [],
             "options": {
-                "cwd": "${workspaceFolder}/build/package/ScriptRoom-Rust"
+                "cwd": "${workspaceFolder}/build/package/ScriptRoom"
             },
             "dependsOn": "ScriptRoom: 打包便携版",
             "dependsOrder": "sequence",
@@ -83,12 +167,12 @@
         {
             "label": "ScriptRoom: 检查测试配置",
             "type": "process",
-            "command": "${workspaceFolder}/build/package/ScriptRoom-Rust/ScriptRoomCLI.exe",
+            "command": "${workspaceFolder}/build/package/ScriptRoom/ScriptRoomCLI.exe",
             "args": [
                 "--check"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/build/package/ScriptRoom-Rust"
+                "cwd": "${workspaceFolder}/build/package/ScriptRoom"
             },
             "dependsOn": "ScriptRoom: 打包便携版",
             "dependsOrder": "sequence",
