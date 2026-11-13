@@ -29,6 +29,9 @@ std::optional<fs::path> pick_save_file(HWND Owner, const FileDialogOptions &Opti
 /// 用资源管理器打开目录；失败时抛出 Error。
 void open_in_explorer(const fs::path &Directory);
 
+/// 用默认浏览器打开网址；失败时抛出 Error。
+void open_url(std::string_view Url);
+
 /// 启动失败的系统消息框（此时界面库尚未可用）。
 void show_startup_failure(std::string_view Message);
 

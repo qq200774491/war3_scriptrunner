@@ -109,6 +109,12 @@ void open_in_explorer(const fs::path &Directory) {
     require(Result > 32, std::format("无法打开资源管理器（错误码 {}）", Result));
 }
 
+void open_url(std::string_view Url) {
+    const auto Result =
+        reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", to_wide(Url).c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    require(Result > 32, std::format("无法打开网址（错误码 {}）", Result));
+}
+
 void show_startup_failure(std::string_view Message) {
     MessageBoxW(nullptr, to_wide(Message).c_str(), L"ScriptRoom 启动失败", MB_OK | MB_ICONERROR);
 }
