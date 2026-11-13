@@ -2,6 +2,7 @@
 
 #include "CommandLine.h"
 #include "ConfigDraft.h"
+#include "DisplayPath.h"
 #include "FileSystem.h"
 #include "Json.h"
 #include "TestHarness.h"
@@ -96,6 +97,23 @@ const Registrar DraftRejectsBadInput("gui.draft.rejects_bad_input", [] {
     const Config Trimmed = Padded.to_config(ConfigPath);
     check_equal(Trimmed.Seconds, std::uint64_t(120));
     check_equal(Trimmed.Map.filename(), fs::path("a.w3x"));
+});
+
+const Registrar PathsShownWithBackslashes("gui.path.display_uses_backslashes", [] {
+    check_equal(display_path("D:/Code/仙途/test.w3x"), std::string(R"(D:\Code\仙途\test.w3x)"));
+    check_equal(display_path(R"(F:\code\scriptrunner\build\state\xiantu)"),
+                std::string(R"(F:\code\scriptrunner\build\state\xiantu)"));
+    check_equal(display_path(R"(F:\code\scriptrunner\build/state/map\clients)"),
+                std::string(R"(F:\code\scriptrunner\build\state\map\clients)"));
+    check_equal(display_path("build/state/map"), std::string(R"(build\state\map)"));
+    check_equal(display_path(R"(\\server\share\存档)"), std::string(R"(\\server\share\存档)"));
+    check_equal(display_path("//server/share/x"), std::string(R"(\\server\share\x)"));
+    check_equal(display_path(""), std::string());
+
+    // 没改动的输入框换回原文，保存时不改已有写法；改了才用新输入。
+    check_equal(edited_path(R"(D:\Code\仙途\test.w3x)", "D:/Code/仙途/test.w3x"), std::string("D:/Code/仙途/test.w3x"));
+    check_equal(edited_path(R"(D:\Code\other.w3x)", "D:/Code/仙途/test.w3x"), std::string(R"(D:\Code\other.w3x)"));
+    check_equal(edited_path("", "D:/x"), std::string());
 });
 
 const Registrar DraftCarriesClientCount("gui.draft.client_count_round_trip", [] {
