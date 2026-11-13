@@ -115,12 +115,15 @@ const Registrar ThemePalettesMatchDesign("gui.theme.palettes", [] {
     check_equal(Blue.AccentSolid.hex(), std::string("#0143b1"));
     check_equal(Blue.AccentBright.hex(), std::string("#1470e1"));
     check_equal(Blue.AccentOn.hex(), std::string("#8fb6f0"));
+    check_equal(palette_of(ThemeKind::Sky).Accent.hex(), std::string("#0078d4"));
+    check_equal(palette_of(ThemeKind::Sky).AccentSolid.hex(), std::string("#0078d4"));
     check_equal(palette_of(ThemeKind::Teal).AccentSolid.hex(), std::string("#0e7a6c"));
     check_equal(palette_of(ThemeKind::Violet).AccentSolid.hex(), std::string("#5138ac"));
     check_equal(palette_of(ThemeKind::Amber).AccentSolid.hex(), std::string("#9c610b"));
     check_equal(palette_of(ThemeKind::Slate).AccentSolid.hex(), std::string("#37495a"));
 
     check_equal(std::string(theme_label(ThemeKind::Blue)), std::string("蓝"));
+    check_equal(std::string(theme_label(ThemeKind::Sky)), std::string("天蓝"));
     check_equal(std::string(theme_label(ThemeKind::Amber)), std::string("琥珀"));
     check_equal(std::string(theme_label(ThemeKind::Slate)), std::string("石板"));
     check_equal(std::string(theme_label(ThemeKind::White)), std::string("白色"));

@@ -11,10 +11,11 @@ namespace scriptroom::gui {
 
 namespace fs = std::filesystem;
 
-enum class ThemeKind { Blue, Teal, Violet, Amber, Slate, White };
+enum class ThemeKind { Blue, Sky, Teal, Violet, Amber, Slate, White };
 
-inline constexpr std::array<ThemeKind, 6> AllThemes = {ThemeKind::Blue,  ThemeKind::Teal,  ThemeKind::Violet,
-                                                       ThemeKind::Amber, ThemeKind::Slate, ThemeKind::White};
+inline constexpr std::array<ThemeKind, 7> AllThemes = {ThemeKind::Blue,  ThemeKind::Sky,   ThemeKind::Teal,
+                                                       ThemeKind::Violet, ThemeKind::Amber, ThemeKind::Slate,
+                                                       ThemeKind::White};
 
 struct Rgb {
     std::uint8_t R = 0;
