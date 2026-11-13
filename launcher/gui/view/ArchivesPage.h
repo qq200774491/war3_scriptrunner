@@ -1,5 +1,6 @@
 #pragma once
 
+#include "PillButton.h"
 #include "TextBlock.h"
 #include "ViewServices.h"
 
@@ -8,7 +9,6 @@
 
 namespace scriptroom::gui {
 
-/// 玩家存档页：两位玩家各自的客户端 INI 与云端存档路径，以及“打开存档目录”。
 class ArchivesPage {
 public:
     ArchivesPage(const ViewServices &Context, Node Parent);
@@ -28,7 +28,9 @@ private:
 
     const ViewServices &Services;
     Node Body;
-    Node Details; ///< 玩家卡片与按钮；草稿无效时隐藏
+    Node Details;
+    Node Unresolved;
+    PillButton OpenFolder;
     std::array<PlayerPaths, 2> Players;
 };
 
