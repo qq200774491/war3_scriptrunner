@@ -1,46 +1,68 @@
--- 两种宿主复用同一异步流程；每个具名阶段验证当前结果后推进下一步。
 RegisterEvent('_msbroadcast', function(_, _, payload)
     local message = json.decode(payload)
-    assert(message.key == 'notice' and message.value == '完成')
+    if message.key ~= 'notice' or message.value ~= '完成' then
+        error('广播内容不符', 0)
+    end
     MsSendMlEvent(0, 'passed', 'global native chain')
 end)
 
 local returned = false
+
 local function on_released(released)
-    assert(released.errnu == 0 and released.data.ok)
+    if released.errnu ~= 0 or not released.data.ok then
+        error('释放锁失败', 0)
+    end
     MsBroadcast('notice', '完成')
 end
 
 local function on_deleted(deleted)
-    assert(deleted.errnu == 0 and deleted.data.value == 1)
+    if deleted.errnu ~= 0 or deleted.data.value ~= 1 then
+        error('删除字段的结果不符', 0)
+    end
     MsGALockRelease('lock', on_released)
 end
 
 local function on_all_read(all)
-    assert(all.errnu == 0 and all.data.value.other == '2')
+    if all.errnu ~= 0 or all.data.value.other ~= '2' then
+        error('读取全部字段的结果不符', 0)
+    end
     MsGAHDel('hash', {'other'}, on_deleted)
 end
 
 local function on_fields_read(read)
-    assert(read.errnu == 0 and read.data.value.owner == '玩家一' and not read.data.value.absent)
+    if read.errnu ~= 0 then
+        error('读取指定字段失败', 0)
+    end
+    local value = read.data.value
+    if value.owner ~= '玩家一' or value.absent then
+        error('读取指定字段的结果不符', 0)
+    end
     MsGAHGetAll('hash', on_all_read)
 end
 
 local function on_saved(saved)
-    assert(saved.errnu == 0 and saved.data.value == 2)
+    if saved.errnu ~= 0 or saved.data.value ~= 2 then
+        error('写入字段的结果不符', 0)
+    end
     MsGAHmGet('hash', {'owner', 'absent'}, on_fields_read)
 end
 
 local function on_blocked(blocked)
-    assert(blocked.errnu == 0 and not blocked.data.ok)
-    MsGAHmSet('hash', {owner='玩家一', other='2'}, on_saved)
+    if blocked.errnu ~= 0 or blocked.data.ok then
+        error('锁被占用时再次获取应当失败', 0)
+    end
+    MsGAHmSet('hash', {owner = '玩家一', other = '2'}, on_saved)
 end
 
 local function on_acquired(reply)
-    assert(returned and reply.errnu == 0 and reply.data.ok)
+    if not returned or reply.errnu ~= 0 or not reply.data.ok then
+        error('首次获取锁失败', 0)
+    end
     MsGALockAcquire('lock', 1000, on_blocked)
 end
 
-local tid = MsGALockAcquire('lock', 1000, on_acquired)
-assert(type(tid) == 'number')
+local transaction = MsGALockAcquire('lock', 1000, on_acquired)
+if type(transaction) ~= 'number' then
+    error('获取锁应返回事务号', 0)
+end
 returned = true

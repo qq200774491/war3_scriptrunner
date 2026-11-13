@@ -1,22 +1,27 @@
--- 关闭请求由持有创建句柄的助手执行；事件句柄只属于这一代游戏进程。
 local ffi = require 'ffi'
+
 ffi.cdef [[
-    void* __stdcall CreateEventA(void*, int, int, const char*);
-    unsigned long __stdcall GetLastError(void);
-    unsigned long __stdcall WaitForSingleObject(void*, unsigned long);
-    int __stdcall SetEvent(void*);
-    int __stdcall CloseHandle(void*);
+void* __stdcall CreateEventA(void*, int, int, const char*);
+unsigned long __stdcall GetLastError(void);
+unsigned long __stdcall WaitForSingleObject(void*, unsigned long);
+int __stdcall SetEvent(void*);
+int __stdcall CloseHandle(void*);
 ]]
+
+local ERROR_ALREADY_EXISTS = 183
+local WAIT_OBJECT_0 = 0
+local WAIT_TIMEOUT = 258
+local POLL_MILLISECONDS = 100
 
 local function create_event(name, manual)
     local handle = ffi.C.CreateEventA(nil, manual, 0, name)
     local code = ffi.C.GetLastError()
     if handle == nil then
-        error('cannot create game control event: ' .. tostring(code))
+        error('无法创建游戏控制事件：' .. tostring(code), 0)
     end
-    if code == 183 then
+    if code == ERROR_ALREADY_EXISTS then
         ffi.C.CloseHandle(handle)
-        error('game control event already exists')
+        error('游戏控制事件已存在', 0)
     end
     return handle
 end
@@ -27,28 +32,30 @@ return function(process)
     local opened, exited = pcall(create_event, prefix .. '-exited', 1)
     if not opened then
         ffi.C.CloseHandle(request)
-        error(exited)
+        error(exited, 0)
     end
+
     local ok, code = pcall(function()
-        -- 先发布控制通道，再通知父启动器 PID，避免刚启动就点击关闭的竞态。
         print('GAME_PID ' .. tostring(process:id()))
         io.stdout:flush()
         while process:is_running() do
-            local result = ffi.C.WaitForSingleObject(request, 100)
-            if result == 0 then
+            local result = ffi.C.WaitForSingleObject(request, POLL_MILLISECONDS)
+            if result == WAIT_OBJECT_0 then
                 process:kill()
-            elseif result ~= 258 then
-                error('game control wait failed: ' .. tostring(ffi.C.GetLastError()))
+            elseif result ~= WAIT_TIMEOUT then
+                error('等待游戏控制事件失败：' .. tostring(ffi.C.GetLastError()), 0)
             end
         end
         local exit_code = process:wait()
-        assert(ffi.C.SetEvent(exited) ~= 0, 'cannot signal game exit')
+        if ffi.C.SetEvent(exited) == 0 then
+            error('无法通知游戏已退出', 0)
+        end
         return exit_code
     end)
     ffi.C.CloseHandle(request)
     ffi.C.CloseHandle(exited)
     if not ok then
-        error(code)
+        error(code, 0)
     end
     return code
 end
