@@ -7,5 +7,6 @@
   "source_game": "D:/war3Project/war3",
   "game": "build/warcraft-demo",
   "seconds": 3600,
-  "startup_timeout": 90
+  "startup_timeout": 90,
+  "clients": 2
 }

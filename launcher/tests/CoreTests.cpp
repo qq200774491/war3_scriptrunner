@@ -239,3 +239,15 @@ const Registrar StopSignalWakesWaiter("sync.stop_signal_wakes_waiters", [] {
 });
 
 } // namespace
+    check_equal(Loaded.Clients, DefaultClients); // 旧配置没有 clients，按两个客户端算
+
+    write_text(Path, R"({"map":"m","local_entry":"e","cloud_scripts":"c","archives":"a","editor":"x","source_game":"s",
+        "game":"g","seconds":60,"startup_timeout":1,"clients":3})");
+    check_equal(Config::load(Path).Clients, std::size_t(3));
+    for (const char *Bad : {"0", "5", "\"two\"", "-1"}) {
+        write_text(Path, std::string(R"({"map":"m","local_entry":"e","cloud_scripts":"c","archives":"a","editor":"x",
+            "source_game":"s","game":"g","seconds":60,"startup_timeout":1,"clients":)") + Bad + "}");
+        check_throws([&] { Config::load(Path); }, "客户端个数");
+    }
+    Saved.Clients = 4;
+    check_equal(Again.Clients, std::size_t(4));

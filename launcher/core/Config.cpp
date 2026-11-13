@@ -14,9 +14,9 @@ namespace scriptroom {
 
 namespace {
 
-constexpr std::array<const char *, 9> FieldNames = {
+constexpr std::array<const char *, 10> FieldNames = {
     "map", "local_entry", "cloud_scripts", "archives", "editor", "source_game", "game", "seconds",
-    "startup_timeout"};
+    "startup_timeout", "clients"};
 
 fs::path read_path_field(const Json &Body, const char *Name) {
     const auto Found = Body.find(Name);
@@ -64,6 +64,11 @@ Config Config::load(const fs::path &Path) {
     require(Timeout->is_number(), "配置字段 startup_timeout 应为数字");
     Result.StartupTimeout = Timeout->get<double>();
 
+    if (const auto Clients = Body.find("clients"); Clients != Body.end()) {
+        require(Clients->is_number_unsigned(), "配置字段 clients（客户端个数）应为正整数");
+        Result.Clients = Clients->get<std::size_t>();
+    }
+
     const fs::path Parent = absolute_path(Path).parent_path();
     require(!Parent.empty(), "无配置目录");
     Result.resolve_paths(Parent);
@@ -84,6 +89,8 @@ void Config::validate_numbers() const {
     require(Seconds > 0 && Seconds <= 31536000, "运行时长应在 1 秒至 1 年之间");
     require(std::isfinite(StartupTimeout) && StartupTimeout > 0.0 && StartupTimeout <= 3600.0,
             "启动超时应在 0 至 3600 秒之间");
+    require(Clients >= MinClients && Clients <= MaxClients,
+            std::format("客户端个数应在 {} 至 {} 之间", MinClients, MaxClients));
 }
 
 void Config::save(const fs::path &Path) const {
@@ -98,6 +105,7 @@ void Config::save(const fs::path &Path) const {
         {"game", path_to_utf8(Game)},
         {"seconds", Seconds},
         {"startup_timeout", StartupTimeout},
+        {"clients", Clients},
     };
     atomic_write(Path, dump_pretty(Body));
 }
