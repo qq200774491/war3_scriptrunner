@@ -1,7 +1,7 @@
 // ScriptRoom 图形界面入口（Windows GUI 子系统）。
 //
 // 参数：--start 打开后自动启动一次；
-//       --capture <png> [--theme blue|sky|teal|violet|amber|slate|white] [--page settings|archives|about]
+//       --capture <png> [--theme blue|sky|teal|violet|amber|slate|white] [--page stats|settings|archives|about] [--sample-stats]
 //                       [--width N --height M] [--capture-log <日志文件>]
 //       截图模式不打开窗口，也不启动游戏或服务。
 

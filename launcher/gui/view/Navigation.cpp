@@ -14,8 +14,9 @@ struct RailItem {
 };
 
 // 底组按加入顺序从下往上排：设置在最下面，关于在它上面。
-constexpr std::array<RailItem, 4> RailItems = {{
+constexpr std::array<RailItem, 5> RailItems = {{
     {Page::Console, "CONSOLE", "云脚本控制台", Edge::Top},
+    {Page::Stats, "SEQ_HISTOGRAM", "运行统计", Edge::Top},
     {Page::Archives, "PACKAGE", "玩家存档", Edge::Top},
     {Page::Settings, "PREFERENCES", "设置", Edge::Bottom},
     {Page::About, "INFO", "关于", Edge::Bottom},
@@ -27,12 +28,12 @@ struct ScopeItem {
     Rgb Tint;
 };
 
-constexpr std::array<ScopeItem, 3> ScopeItems = {{
+constexpr std::array<ScopeItem, 4> ScopeItems = {{
     {LogScope::All, "ALIGN_JUSTIFY", {0x5B, 0x9B, 0xF5}},
     {LogScope::Cloud, "SCRIPT", {0x2F, 0xD0, 0xB5}},
     {LogScope::Errors, "ERROR", {0xF8, 0x71, 0x71}},
-}};
     {LogScope::Slow, "TIME", {0xF5, 0xA5, 0x24}},
+}};
 
 } // namespace
 

@@ -17,7 +17,7 @@ public:
 
 private:
     const ViewServices &Services;
-    std::array<std::unique_ptr<RailKey>, 4> Keys;
+    std::array<std::unique_ptr<RailKey>, 5> Keys;
 };
 
 class NavigationPanel {

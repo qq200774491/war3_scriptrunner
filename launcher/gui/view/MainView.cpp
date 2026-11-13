@@ -39,6 +39,7 @@ MainView::MainView(AppModel &State, EventRouter &Events, Node Root, std::functio
     const Node Workspace = Ui.frame(Shell, {.Fill = Stretch::Both, .Expand = true});
     Status = std::make_unique<StatusBar>(Services, Workspace);
     Console = std::make_unique<ConsolePage>(Services, Workspace);
+    Stats = std::make_unique<StatsPage>(Services, Workspace);
     Settings = std::make_unique<SettingsPage>(Services, Workspace);
     Archives = std::make_unique<ArchivesPage>(Services, Workspace);
     About = std::make_unique<AboutPage>(Services, Workspace);
@@ -65,6 +66,7 @@ void MainView::update_inspector_visibility() {
 
 void MainView::resize(int Width, int) {
     WindowWidth = Width;
+    Stats->resize(Width - px(geometry::RailWidth) - px(geometry::SideWidth));
     update_inspector_visibility();
 }
 
@@ -78,10 +80,14 @@ void MainView::sync() {
     Status->sync();
 
     Console->root().set_visible(Model.page() == Page::Console);
+    Stats->root().set_visible(Model.page() == Page::Stats);
     Settings->root().set_visible(Model.page() == Page::Settings);
     Archives->root().set_visible(Model.page() == Page::Archives);
     About->root().set_visible(Model.page() == Page::About);
     Console->sync();
+    if (Model.page() == Page::Stats) {
+        Stats->sync();
+    }
     Settings->sync();
     Archives->sync(Resolved);
     Inspector->sync(Resolved);

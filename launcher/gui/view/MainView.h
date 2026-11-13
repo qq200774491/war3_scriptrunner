@@ -10,6 +10,7 @@
 #include "InspectorPanel.h"
 #include "Navigation.h"
 #include "SettingsPage.h"
+#include "StatsPage.h"
 #include "StatusBar.h"
 #include "Styler.h"
 #include "TopBar.h"
@@ -52,6 +53,7 @@ private:
     std::unique_ptr<InspectorPanel> Inspector;
     std::unique_ptr<StatusBar> Status;
     std::unique_ptr<ConsolePage> Console;
+    std::unique_ptr<StatsPage> Stats;
     std::unique_ptr<SettingsPage> Settings;
     std::unique_ptr<ArchivesPage> Archives;
     std::unique_ptr<AboutPage> About;
