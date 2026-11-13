@@ -33,7 +33,7 @@ struct Arguments {
     bool Check = false;
     std::optional<std::uint64_t> Seconds;
     std::optional<fs::path> StopFile;
-    std::optional<fs::path> Serve; ///< 仅启动云服务，把两名玩家的连接参数写入该 JSON（集成测试使用）
+    std::optional<fs::path> Serve; ///< 仅启动云服务，把各玩家的连接参数写入该 JSON（集成测试使用）
     std::optional<fs::path> Scripts;
     std::optional<fs::path> Archives;
     bool Direct = false;
@@ -44,13 +44,14 @@ struct Arguments {
     std::optional<fs::path> SourceGame;
     std::optional<fs::path> Game;
     std::optional<double> StartupTimeout;
+    std::optional<std::size_t> Clients;
     bool ShowHelp = false;
     bool ShowVersion = false;
 };
 
 void print_help() {
     std::puts(
-        "ScriptRoom：原生双人启动与共享云脚本\n"
+        "ScriptRoom：原生多开启动与共享云脚本\n"
         "\n"
         "用法：ScriptRoomCLI [选项]\n"
         "\n"
@@ -60,6 +61,7 @@ void print_help() {
         "  --seconds <秒>           覆盖服务时长\n"
         "  --stop-file <路径>       该文件出现时停止服务\n"
         "  --startup-timeout <秒>   覆盖启动超时\n"
+        "  --clients <个数>         覆盖客户端个数（1 到 4）；--serve 时是房间人数，默认 2\n"
         "  --map / --local-entry / --cloud-scripts / --archives / --editor / --source-game / --game <路径>\n"
         "                           覆盖配置中的对应路径\n"
         "  --serve <JSON路径>       仅启动云服务并把玩家连接参数写入该文件（需 --scripts、--archives）\n"
@@ -128,6 +130,11 @@ Arguments parse_arguments(const std::vector<std::string> &Tokens) {
             const std::optional<double> Timeout = parse_double(value());
             require(Timeout.has_value(), "--startup-timeout 需要数字");
             Result.StartupTimeout = Timeout;
+        } else if (Name == "--clients") {
+            const std::optional<std::uint64_t> Clients = parse_u64(value());
+            require(Clients && *Clients >= MinClients && *Clients <= MaxClients,
+                    std::format("--clients 需要 {} 到 {} 之间的整数", MinClients, MaxClients));
+            Result.Clients = static_cast<std::size_t>(*Clients);
         } else if (Name == "-h" || Name == "--help") {
             flag(Result.ShowHelp);
         } else if (Name == "-V" || Name == "--version") {
@@ -201,6 +208,7 @@ void serve_room(const fs::path &Root, const Arguments &Args, std::shared_ptr<Log
     Config.Dll = Root / L"scriptrunner.dll";
     Config.Scripts = absolute_path(*Args.Scripts);
     Config.Archives = absolute_path(*Args.Archives);
+    Config.Players = Args.Clients.value_or(DefaultClients);
     std::unique_ptr<Room> Active = Room::start(Config, Args.Direct ? std::nullopt : std::optional<std::size_t>(0), Logs);
 
     Json Profiles = Json::array();
@@ -247,6 +255,9 @@ void apply_overrides(Config &Settings, const Arguments &Args) {
     }
     if (Args.Seconds) {
         Settings.Seconds = *Args.Seconds;
+    }
+    if (Args.Clients) {
+        Settings.Clients = *Args.Clients;
     }
 }
 
