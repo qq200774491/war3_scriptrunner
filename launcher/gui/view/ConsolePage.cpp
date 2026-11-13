@@ -1,31 +1,33 @@
 #include "ConsolePage.h"
 
+#include "Geometry.h"
+
 namespace scriptroom::gui {
 
 ConsolePage::ConsolePage(const ViewServices &Context, Node Parent)
-    : Services(Context), Log([&Model = Context.Model](const std::string &Line) { Model.select_log(Line); }) {
+    : Services(Context), Log([&Model = Context.Model, &Events = Context.Ui.router()](const std::string &Line) {
+          Events.invoke([&Model, &Line] { Model.select_log(Line); });
+      }) {
     const Builder &Ui = Services.Ui;
     AppModel &Model = Services.Model;
-    Body = Ui.frame(Parent, {.Fill = Stretch::Both, .Expand = true}, std::nullopt, 16);
+    Body = Ui.frame(Parent, {.Fill = Stretch::Both, .Expand = true});
 
-    const Node Title = Ui.frame(Body, {.Side = Edge::Top, .Fill = Stretch::X});
-    Ui.label(Title, {.Side = Edge::Left}, "云脚本", {.Scale = TitleText, .Bold = true});
-    Ui.label(Title, {.Side = Edge::Left, .PadLeft = 6}, "日志", {.Color = &Palette::Muted, .Scale = SmallText});
-    Ui.button(Title, {.Side = Edge::Right}, "清空显示", "TRASH", [&Model] { Model.clear_logs(); });
-    FollowCheck = Ui.checkbox(Title, {.Side = Edge::Right, .PadRight = 12}, "跟随", Model.follow(),
+    const Node Toolbar = Ui.frame(Body, {.Side = Edge::Top, .Fill = Stretch::X, .Height = geometry::ToolbarHeight});
+    Ui.label(Toolbar, {.Side = Edge::Left, .Fill = Stretch::Y, .PadLeft = 20}, "云脚本日志",
+             {.Scale = TitleText, .Bold = true});
+    Ui.pill(Toolbar, {.Side = Edge::Right, .PadRight = 16}, "清空显示", Tone::Secondary, [&Model] { Model.clear_logs(); });
+    FollowCheck = Ui.checkbox(Toolbar, {.Side = Edge::Right, .PadRight = 12}, "跟随", Model.follow(),
                               [&Model](bool On) { Model.set_follow(On); });
-
-    Ui.divider(Body, {.Side = Edge::Top, .Fill = Stretch::X, .PadTop = 10, .PadBottom = 10});
 
     Body.add(Log.node(), {.Fill = Stretch::Both, .Expand = true});
     Ui.style().watch([this](const Palette &Colors) { Log.set_palette(Colors); });
 
     EmptyState = Ui.frame(Body, {.Fill = Stretch::Both, .Expand = true});
-    Ui.label(EmptyState, {.PadTop = 80}, "", {.Color = &Palette::Muted, .Scale = 2.4, .Align = "center"})
+    Ui.label(EmptyState, {.PadTop = 110}, "", {.Color = &Palette::Text4, .Scale = 2.4, .Align = "center"})
         .str("icon", "CONSOLE");
-    Ui.label(EmptyState, {.PadTop = 12}, "控制台已就绪", {.Scale = 1.2});
-    Ui.label(EmptyState, {.PadTop = 4}, "启动房间后，云脚本输出会显示在这里", {.Color = &Palette::Muted, .Scale = SmallText});
-    Ui.button(EmptyState, {.PadTop = 18}, "检查路径配置", "PREFERENCES", [&Model] { Model.show_page(Page::Settings); });
+    Ui.label(EmptyState, {.PadTop = 16}, "控制台已就绪", {.Scale = TitleText});
+    Ui.label(EmptyState, {.PadTop = 8}, "启动房间后，云脚本输出会显示在这里", {.Color = &Palette::Text3});
+    Ui.pill(EmptyState, {.PadTop = 20}, "检查路径配置", Tone::Secondary, [&Model] { Model.show_page(Page::Settings); });
 }
 
 void ConsolePage::sync() {
