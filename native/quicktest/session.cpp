@@ -47,8 +47,11 @@ Options parse_options() {
         if (key == L"-host") {
             ++roles;
             result.host = true;
-            if (value() != L"2") throw std::runtime_error("this integration currently requires two players");
-            result.players = 2;
+            // 启动器一次开 1 到 4 个客户端；房主等到齐这么多人才开局，只有自己时建好房间就开。
+            const auto& players = value();
+            if (players.size() != 1 || players[0] < L'1' || players[0] > L'4')
+                throw std::runtime_error("host player count must be 1 to 4");
+            result.players = players[0] - L'0';
             auto path = std::filesystem::path(value());
             if (path.has_root_path() || path.empty() || *path.begin() != L"Maps" ||
                 std::find(path.begin(), path.end(), L"..") != path.end() ||
