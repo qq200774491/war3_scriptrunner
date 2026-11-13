@@ -108,6 +108,8 @@ const Registrar ThemePalettesMatchDesign("gui.theme.palettes", [] {
         check(Other.Canvas == Rgb{0x20, 0x20, 0x20});
         check(Other.Panel == Rgb{0x26, 0x26, 0x26});
         check(Other.Card == Rgb{0x27, 0x27, 0x27});
+        check(Other.Side == Rgb{0x22, 0x22, 0x22}); // 左栏只比主区域深一点
+        check(Other.Divider == Rgb{0x33, 0x33, 0x33}); // 分隔线只比底色亮一点
         check(Other.Text == Blue.Text);
         check(Other.Edge == Blue.Edge);
     }

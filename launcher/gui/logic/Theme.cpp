@@ -78,6 +78,8 @@ const ThemeSpec &spec_of(ThemeKind Kind) {
 void fill_dark_grays(Palette &P) {
     P.Canvas = gray(0x20);
     P.Panel = gray(0x26);
+    P.Side = gray(0x22);
+    P.Divider = gray(0x33);
     P.Card = gray(0x27);
     P.Edge = gray(0x4D);
     P.Popup = gray(0x2E);
@@ -102,6 +104,8 @@ void fill_dark_grays(Palette &P) {
 void fill_light_grays(Palette &P) {
     P.Canvas = {0xF3, 0xF4, 0xF6};
     P.Panel = White;
+    P.Side = {0xF6, 0xF7, 0xF9};
+    P.Divider = {0xE4, 0xE7, 0xEB};
     P.Card = White;
     P.Edge = {0xC6, 0xCB, 0xD2};
     P.Popup = White;

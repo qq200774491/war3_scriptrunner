@@ -33,6 +33,8 @@ Rgb blend(Rgb Base, Rgb Over, float Alpha);
 struct Palette {
     Rgb Canvas;
     Rgb Panel;
+    Rgb Side;    ///< 左栏底色，只比主区域深一点，让人看出是两块
+    Rgb Divider; ///< 区域之间的 1px 淡线，只比底色亮一点
     Rgb Card;
     Rgb Edge;
     Rgb Popup;
