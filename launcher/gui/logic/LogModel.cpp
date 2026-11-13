@@ -13,6 +13,8 @@ bool in_entry_scope(LogScope Scope, const LogEntry &Entry) {
         return Entry.Script;
     case LogScope::Errors:
         return Entry.Error;
+    case LogScope::Slow:
+        return Entry.Slow;
     case LogScope::All:
         break;
     }
@@ -26,7 +28,8 @@ void LogModel::push_line(std::string_view Line) {
     Entry.Text = std::string(Line);
     Entry.Folded = to_lower(Line);
     Entry.Script = is_script_line(Line);
-    Entry.Error = is_error_line(Line);
+    Entry.Slow = is_slow_line(Line);
+    Entry.Error = !Entry.Slow && is_error_line(Line);
     Entry.Source = classify_line(Line);
     Entries.push_back(std::move(Entry));
     while (Entries.size() > Capacity) {

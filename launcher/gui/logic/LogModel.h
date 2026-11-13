@@ -18,6 +18,7 @@ struct LogEntry {
     LogSource Source = LogSource::System;
     bool Script = false;
     bool Error = false;
+    bool Slow = false;
 };
 
 struct LogFilter {

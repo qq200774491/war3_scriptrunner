@@ -1,5 +1,6 @@
 #include "LogLine.h"
 
+#include "RunStats.h"
 #include "Text.h"
 
 #include <string>
@@ -18,7 +19,14 @@ bool is_error_line(std::string_view Line) {
     return Lower.find("error") != std::string::npos || Lower.find("failed") != std::string::npos;
 }
 
+bool is_slow_line(std::string_view Line) {
+    return Line.starts_with(SlowRequestTag);
+}
+
 LogSource classify_line(std::string_view Line) {
+    if (is_slow_line(Line)) {
+        return LogSource::Slow;
+    }
     if (is_error_line(Line)) {
         return LogSource::Error;
     }
@@ -31,6 +39,8 @@ const char *source_label(LogSource Source) {
         return "错误";
     case LogSource::Script:
         return "脚本";
+    case LogSource::Slow:
+        return "慢请求";
     case LogSource::System:
         break;
     }
@@ -43,6 +53,8 @@ const char *scope_label(LogScope Scope) {
         return "云脚本";
     case LogScope::Errors:
         return "错误与异常";
+    case LogScope::Slow:
+        return "慢请求";
     case LogScope::All:
         break;
     }

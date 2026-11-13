@@ -27,6 +27,24 @@ const Registrar LogLineClassification("gui.log.classify_lines", [] {
     check_equal(std::string(scope_label(LogScope::All)), std::string("全部日志"));
     check_equal(std::string(scope_label(LogScope::Cloud)), std::string("云脚本"));
     check_equal(std::string(scope_label(LogScope::Errors)), std::string("错误与异常"));
+    check_equal(std::string(scope_label(LogScope::Slow)), std::string("慢请求"));
+    check_equal(std::string(source_label(LogSource::Slow)), std::string("慢请求"));
+});
+
+const Registrar LogSlowRequests("gui.log.slow_requests_are_their_own_scope", [] {
+    check(classify_line("[慢请求] 玩家 0 · increment · 350 ms") == LogSource::Slow);
+    // 请求名里带 error 也只算慢请求，不进“错误与异常”。
+    check(classify_line("[慢请求] 玩家 1 · report_error · 900 ms") == LogSource::Slow);
+    check(!is_slow_line("[云脚本 0] [慢请求] 只是脚本打印的文字"));
+
+    LogModel Model;
+    Model.append("[慢请求] 玩家 0 · increment · 350 ms\n[慢请求] 玩家 1 · report_error · 900 ms\nerror gamma\n[云脚本 0] a");
+    check_equal(Model.count(LogScope::Slow), std::size_t(2));
+    check_equal(Model.count(LogScope::Errors), std::size_t(1));
+    LogFilter Filter;
+    Filter.Scope = LogScope::Slow;
+    Filter.Query = "report";
+    check(Model.visible(Filter) == std::vector<std::size_t>({1}));
 });
 
 const Registrar LogModelSplitsLines("gui.log.append_splits_lines", [] {
