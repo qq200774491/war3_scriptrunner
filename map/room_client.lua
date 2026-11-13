@@ -82,10 +82,11 @@ end
 function M:departed_player()
     local common = self._common
     for player = 0, MAX_PLAYER_SLOT do
-        if self._profile.players[player]
-            and common.GetPlayerSlotState(common.Player(player)) ~= common.PLAYER_SLOT_STATE_PLAYING
-        then
-            return player
+        if self._profile.players[player] then
+            local state = common.GetPlayerSlotState(common.Player(player))
+            if state ~= common.PLAYER_SLOT_STATE_PLAYING then
+                return player
+            end
         end
     end
 end

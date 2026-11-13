@@ -3,6 +3,7 @@ local MAX_QUEUE = 262144
 local FLUSH_PER_TICK = 4
 
 local PACKET_LIMITS = {[80] = 240, [350] = 799}
+local PACKET_PATTERN = '^([%w%-]+)|(%d+)|(%d+)|(%d+)|(%x+)$'
 
 local function hex(value)
     return (value:gsub('.', function(char)
@@ -28,19 +29,18 @@ end
 ---@return SyncFragment|nil fragment
 ---@return string|nil reason
 local function parse_fragment(packet, room, chunk)
-    local packet_room, sequence, index, count, data =
-        packet:match('^([%w%-]+)|(%d+)|(%d+)|(%d+)|(%x+)$')
+    local packet_room, sequence, index, count, data = packet:match(PACKET_PATTERN)
     if packet_room ~= room then
         return nil
     end
     sequence, index, count = tonumber(sequence), tonumber(index), tonumber(count)
-    local valid = #data % 2 == 0
-        and #data <= chunk * 2
-        and count >= 1
-        and count <= math.ceil(MAX_BYTES / chunk)
-        and index >= 1
-        and index <= count
-    if not valid then
+    if #data % 2 ~= 0 or #data > chunk * 2 then
+        return nil, 'invalid sync fragment'
+    end
+    if count < 1 or count > math.ceil(MAX_BYTES / chunk) then
+        return nil, 'invalid sync fragment'
+    end
+    if index < 1 or index > count then
         return nil, 'invalid sync fragment'
     end
     return {sequence = sequence, index = index, count = count, data = data}
@@ -162,10 +162,10 @@ function M:accept_fragment(fragment)
     if fragment.sequence < self._expected then
         return
     end
-    if fragment.sequence ~= self._expected
-        or index > self._index
-        or (self._count and self._count ~= count)
-    then
+    if fragment.sequence ~= self._expected or index > self._index then
+        return self:stop('sync sequence gap')
+    end
+    if self._count and self._count ~= count then
         return self:stop('sync sequence gap')
     end
     local part = unhex(fragment.data)
