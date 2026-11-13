@@ -101,10 +101,10 @@ void write_text(const fs::path &Path, const std::string &Text) {
 
 const Registrar ArchivesKeepOwnerData("client_archives.snapshots_take_owner_data_and_preserve_settings", [] {
     TempDirectory Directory;
-    const auto Paths = prepare_client_archives(Directory.path(), std::nullopt);
+    const auto Paths = prepare_client_archives(Directory.path(), 2, std::nullopt);
     write_text(Paths[0], Ini::parse_text("[DzAPI]\nSSV-0-a=own0\nSSV-1-a=stale\nlevel=50").utf16());
     write_text(Paths[1], Ini::parse_text("[DzAPI]\nSSV-0-a=stale\nSSV-1-a=own1\nlevel=60").utf16());
-    prepare_client_archives(Directory.path(), std::nullopt);
+    prepare_client_archives(Directory.path(), 2, std::nullopt);
     for (std::size_t Player = 0; Player < Paths.size(); ++Player) {
         const std::string Raw = read_file(Paths[Player]);
         const Ini Document = Ini::parse(bytes_of(Raw));
@@ -115,15 +115,15 @@ const Registrar ArchivesKeepOwnerData("client_archives.snapshots_take_owner_data
     // 权威槽位缺失时拒绝启动，且不改写队友的文件。
     fs::remove(Paths[0]);
     const std::string Before = read_file(Paths[1]);
-    check_throws([&] { prepare_client_archives(Directory.path(), std::nullopt); });
+    check_throws([&] { prepare_client_archives(Directory.path(), 2, std::nullopt); });
     check_equal(read_file(Paths[1]), Before);
 });
 
 const Registrar ArchivesLockedByLiveGame("client_archives.live_ini_lock_blocks_snapshot", [] {
     TempDirectory Directory;
-    const auto Paths = prepare_client_archives(Directory.path(), std::nullopt);
+    const auto Paths = prepare_client_archives(Directory.path(), 2, std::nullopt);
     const FileLock Held = exclusive_file(Paths[1].native() + L".lock");
-    check_throws([&] { prepare_client_archives(Directory.path(), std::nullopt); }, "占用");
+    check_throws([&] { prepare_client_archives(Directory.path(), 2, std::nullopt); }, "占用");
 });
 
 const Registrar ArchivesMigrateV1("client_archives.v1_layout_is_backed_up_and_migrated", [] {
@@ -133,7 +133,7 @@ const Registrar ArchivesMigrateV1("client_archives.v1_layout_is_backed_up_and_mi
         write_text(Old, Ini::parse_text(std::format("[DzAPI]\nSSV-{}-k=v{}\nkeep={}", Player, Player, Player + 7)).utf16());
     }
     write_text(Directory.path() / L"layout.json", R"({"version":1,"players":[0,1]})");
-    const auto Paths = prepare_client_archives(Directory.path(), std::nullopt);
+    const auto Paths = prepare_client_archives(Directory.path(), 2, std::nullopt);
     check(fs::exists(Directory.path() / L"backups" / L"v1-player-0.ini"));
     check(fs::exists(Directory.path() / L"backups" / L"v1-player-1.ini"));
     const std::string Raw = read_file(Paths[1]);
@@ -142,8 +142,63 @@ const Registrar ArchivesMigrateV1("client_archives.v1_layout_is_backed_up_and_mi
     check_equal(Document.get("DzAPI", "keep").value_or(""), std::string("8"));
     check_throws([&] {
         write_text(Directory.path() / L"layout.json", R"({"version":9})");
-        prepare_client_archives(Directory.path(), std::nullopt);
+        prepare_client_archives(Directory.path(), 2, std::nullopt);
     }, "未知客户端存档布局");
+});
+
+std::string layout_text(const TempDirectory &Directory) {
+    return read_file(Directory.path() / L"layout.json");
+}
+
+const Registrar ArchivesFollowClientCount("client_archives.client_count_grows_and_shrinks", [] {
+    TempDirectory Directory;
+    const auto One = prepare_client_archives(Directory.path(), 1, std::nullopt);
+    check_equal(One.size(), std::size_t(1));
+    check_equal(layout_text(Directory), std::string(R"({"players":[0],"version":2})"));
+    write_text(One[0], Ini::parse_text("[DzAPI]\nSSV-0-gold=10\nlevel=3").utf16());
+
+    // 加到三个：新玩家从初始内容建档，并拿到玩家 0 的权威值。
+    const auto Three = prepare_client_archives(Directory.path(), 3, std::nullopt);
+    check_equal(Three.size(), std::size_t(3));
+    check_equal(Three[2], Directory.path() / L"player-2.ini");
+    check_equal(layout_text(Directory), std::string(R"({"players":[0,1,2],"version":2})"));
+    const std::string Raw = read_file(Three[2]);
+    check_equal(Ini::parse(bytes_of(Raw)).get("DzAPI", "SSV-0-gold").value_or(""), std::string("10"));
+    write_text(Three[2], Ini::parse_text("[DzAPI]\nSSV-0-gold=stale\nSSV-2-gem=7").utf16());
+
+    // 减回一个：记过的玩家照样整理，布局不忘记他们。
+    check_equal(prepare_client_archives(Directory.path(), 1, std::nullopt).size(), std::size_t(1));
+    check_equal(layout_text(Directory), std::string(R"({"players":[0,1,2],"version":2})"));
+    const std::string Zero = read_file(One[0]);
+    check_equal(Ini::parse(bytes_of(Zero)).get("DzAPI", "SSV-2-gem").value_or(""), std::string("7"));
+    const std::string Two = read_file(Three[2]);
+    check_equal(Ini::parse(bytes_of(Two)).get("DzAPI", "SSV-0-gold").value_or(""), std::string("10"));
+
+    // 记过的玩家文件丢了：哪怕这一轮只开一个也拒绝，不拿队友的旧副本复活。
+    fs::remove(Three[2]);
+    check_throws([&] { prepare_client_archives(Directory.path(), 1, std::nullopt); }, "玩家 2");
+    check(!fs::exists(Three[2]));
+});
+
+const Registrar ArchivesMigrateV1WithOneClient("client_archives.v1_migrates_every_listed_player", [] {
+    TempDirectory Directory;
+    for (int Player = 0; Player < 2; ++Player) {
+        const fs::path Old = Directory.path() / std::format(L"player-{}", Player) / L"dz_w3_plugin.ini";
+        write_text(Old, Ini::parse_text(std::format("[DzAPI]\nSSV-{}-k=v{}", Player, Player)).utf16());
+    }
+    write_text(Directory.path() / L"layout.json", R"({"version":1,"players":[0,1]})");
+    // 只开一个客户端也要把两位玩家都迁过去，否则下次两人开局时玩家 1 的存档就找不到了。
+    prepare_client_archives(Directory.path(), 1, std::nullopt);
+    check(fs::exists(Directory.path() / L"player-1.ini"));
+    check(fs::exists(Directory.path() / L"backups" / L"v1-player-1.ini"));
+    const auto Both = prepare_client_archives(Directory.path(), 2, std::nullopt);
+    const std::string Raw = read_file(Both[1]);
+    check_equal(Ini::parse(bytes_of(Raw)).get("DzAPI", "SSV-1-k").value_or(""), std::string("v1"));
+    for (const char *Bad : {R"({"version":2,"players":[0,0]})", R"({"version":2,"players":[12]})",
+                            R"({"version":2,"players":[]})", R"({"version":1,"players":[0]})"}) {
+        write_text(Directory.path() / L"layout.json", Bad);
+        check_throws([&] { prepare_client_archives(Directory.path(), 2, std::nullopt); }, "未知客户端存档布局");
+    }
 });
 
 const Registrar GlobalArchivePersists("global_archive.persistence_validation_and_locks", [] {
@@ -196,6 +251,16 @@ const Registrar ConfigValidates("config.load_resolves_paths_and_rejects_unknown_
     check_equal(Loaded.Map, Directory.path() / L"m.w3x");
     check_equal(Loaded.Seconds, std::uint64_t(60));
     check_equal(Loaded.StartupTimeout, 90.5);
+    check_equal(Loaded.Clients, DefaultClients); // 旧配置没有 clients，按两个客户端算
+
+    write_text(Path, R"({"map":"m","local_entry":"e","cloud_scripts":"c","archives":"a","editor":"x","source_game":"s",
+        "game":"g","seconds":60,"startup_timeout":1,"clients":3})");
+    check_equal(Config::load(Path).Clients, std::size_t(3));
+    for (const char *Bad : {"0", "5", "\"two\"", "-1"}) {
+        write_text(Path, std::string(R"({"map":"m","local_entry":"e","cloud_scripts":"c","archives":"a","editor":"x",
+            "source_game":"s","game":"g","seconds":60,"startup_timeout":1,"clients":)") + Bad + "}");
+        check_throws([&] { Config::load(Path); }, "客户端个数");
+    }
 
     write_text(Path, R"({"map":"m","local_entry":"e","cloud_scripts":"c","archives":"a","editor":"x","source_game":"s",
         "game":"g","seconds":60,"startup_timeout":1,"extra":1})");
@@ -208,11 +273,13 @@ const Registrar ConfigValidates("config.load_resolves_paths_and_rejects_unknown_
     check_throws([&] { Config::load(Path); }, "启动超时");
 
     Config Saved = Loaded;
+    Saved.Clients = 4;
     const fs::path Out = Directory.path() / L"saved.json";
     Saved.save(Out);
     const Config Again = Config::load(Out);
     check_equal(Again.Archives, Loaded.Archives);
     check_equal(Again.StartupTimeout, 90.5);
+    check_equal(Again.Clients, std::size_t(4));
 });
 
 const Registrar ChannelBackpressure("sync.channel_is_bounded_and_closes", [] {
@@ -239,15 +306,3 @@ const Registrar StopSignalWakesWaiter("sync.stop_signal_wakes_waiters", [] {
 });
 
 } // namespace
-    check_equal(Loaded.Clients, DefaultClients); // 旧配置没有 clients，按两个客户端算
-
-    write_text(Path, R"({"map":"m","local_entry":"e","cloud_scripts":"c","archives":"a","editor":"x","source_game":"s",
-        "game":"g","seconds":60,"startup_timeout":1,"clients":3})");
-    check_equal(Config::load(Path).Clients, std::size_t(3));
-    for (const char *Bad : {"0", "5", "\"two\"", "-1"}) {
-        write_text(Path, std::string(R"({"map":"m","local_entry":"e","cloud_scripts":"c","archives":"a","editor":"x",
-            "source_game":"s","game":"g","seconds":60,"startup_timeout":1,"clients":)") + Bad + "}");
-        check_throws([&] { Config::load(Path); }, "客户端个数");
-    }
-    Saved.Clients = 4;
-    check_equal(Again.Clients, std::size_t(4));

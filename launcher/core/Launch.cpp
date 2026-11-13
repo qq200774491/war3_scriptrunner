@@ -95,7 +95,7 @@ void require_file(const fs::path &Path) {
 
 /// 准备共用魔兽目录、客户端存档、地图、插件与启动配置；返回两位玩家的 INI 与编辑器暂存目录。
 struct Prepared {
-    std::array<fs::path, 2> ClientArchives;
+    std::vector<fs::path> ClientArchives;
     fs::path StagedEditor;
 };
 
@@ -125,7 +125,7 @@ Prepared prepare(const fs::path &Root, const Config &Settings) {
     }
     const fs::path Legacy = Settings.Game / L"dz_w3_plugin.ini";
     Prepared Result;
-    Result.ClientArchives = prepare_client_archives(Settings.Archives / L"clients",
+    Result.ClientArchives = prepare_client_archives(Settings.Archives / L"clients", 2,
                                                     HasPrevious ? std::optional<fs::path>(Legacy) : std::nullopt);
     copy_if_changed(Settings.Map, Settings.Game / L"Maps" / L"Test" / L"Project.w3x");
 
