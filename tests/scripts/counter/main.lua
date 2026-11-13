@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global, missing-fields, redundant-parameter
 local counter = 0
 local loaded = false
 

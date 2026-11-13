@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global, missing-fields
 local check = require 'check'
 local room_events = require 'room_events'
 local room_transport = require 'room_transport'

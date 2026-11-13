@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global, missing-fields, redundant-parameter
 RegisterEvent('_msbroadcast', function(_, _, payload)
     local message = json.decode(payload)
     if message.key ~= 'notice' or message.value ~= '完成' then

@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global
 local check = require 'check'
 local room_ffi = require 'room_ffi'
 local shared_room = require 'shared_room'

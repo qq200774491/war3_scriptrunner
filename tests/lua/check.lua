@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global, missing-fields, redundant-parameter
 local M = {}
 
 ---@param value any

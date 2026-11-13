@@ -1,3 +1,6 @@
+---@diagnostic disable: undefined-global
+
+
 local load_config, config_error = loadfile('build/game/launch_config.lua')
 if not load_config then
     error(config_error, 0)
