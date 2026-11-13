@@ -17,6 +17,7 @@ private:
     Node Body;
     Node FollowCheck;
     PillButton CopyLine;
+    PillButton CopyAll;
     Node EmptyState;
     LogView Log;
 };

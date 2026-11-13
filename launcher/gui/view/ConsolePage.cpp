@@ -2,6 +2,8 @@
 
 #include "Geometry.h"
 
+#include <format>
+
 namespace scriptroom::gui {
 
 ConsolePage::ConsolePage(const ViewServices &Context, Node Parent)
@@ -16,6 +18,11 @@ ConsolePage::ConsolePage(const ViewServices &Context, Node Parent)
     Ui.label(Toolbar, {.Side = Edge::Left, .Fill = Stretch::Y, .PadLeft = 20}, "云脚本日志",
              {.Scale = TitleText, .Bold = true});
     Ui.pill(Toolbar, {.Side = Edge::Right, .PadRight = 16}, "清空显示", Tone::Secondary, [&Model] { Model.clear_logs(); });
+    CopyAll = Ui.pill(Toolbar, {.Side = Edge::Right, .PadRight = 4}, "复制全部", Tone::Secondary, [&Model, this] {
+        const std::size_t Count = Model.logs().visible(Model.filter()).size();
+        BK_clipboard_set(BK_node_context(Body.raw()), Model.logs().copy_text(Model.filter()).c_str());
+        Model.report(std::format("已复制 {} 行", Count));
+    });
     CopyLine = Ui.pill(Toolbar, {.Side = Edge::Right, .PadRight = 4}, "复制选中行", Tone::Secondary, [&Model, this] {
         if (const auto &Line = Model.selected_log()) {
             BK_clipboard_set(BK_node_context(Body.raw()), Line->c_str());
@@ -42,6 +49,7 @@ void ConsolePage::sync() {
     EmptyState.set_visible(!HasLogs);
     FollowCheck.set_value(Model.follow() ? 1.0 : 0.0);
     CopyLine.set_enabled(Model.selected_log().has_value());
+    CopyAll.set_enabled(!Model.logs().visible(Model.filter()).empty());
     Log.show(Model.logs(), Model.filter(), Model.selected_log(), Model.follow());
 }
 
