@@ -123,6 +123,7 @@ const Registrar ThemePalettesMatchDesign("gui.theme.palettes", [] {
         check(Other.Card == Rgb{0x27, 0x27, 0x27});
         check(Other.Side == Rgb{0x22, 0x22, 0x22}); // 左栏只比主区域深一点
         check(Other.Divider == Rgb{0x33, 0x33, 0x33}); // 分隔线只比底色亮一点
+        check(Other.Outline == Rgb{0x3A, 0x3A, 0x3A}); // 窗口描边只比背景亮一点
         check(Other.Text == Blue.Text);
         check(Other.Edge == Blue.Edge);
     }

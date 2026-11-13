@@ -35,6 +35,7 @@ struct Palette {
     Rgb Panel;
     Rgb Side;    ///< 左栏底色，只比主区域深一点，让人看出是两块
     Rgb Divider; ///< 区域之间的 1px 淡线，只比底色亮一点
+    Rgb Outline; ///< 窗口外沿一圈 1px 描边：深色主题比背景略亮，白色主题比背景略深
     Rgb Card;
     Rgb Edge;
     Rgb Popup;
