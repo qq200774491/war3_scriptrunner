@@ -1,5 +1,7 @@
 #include "SettingsPage.h"
 
+#include "AccentPicker.h"
+#include "Geometry.h"
 #include "SystemDialogs.h"
 #include "Text.h"
 
@@ -14,11 +16,7 @@ struct SettingsPage::PathRow {
 
 namespace {
 
-constexpr int FieldHeight = 26;
-
-void group_title(const Builder &Ui, Node Parent, std::string_view Text, int Top) {
-    Ui.label(Parent, {.Fill = Stretch::X, .PadTop = Top, .PadBottom = 7}, Text, {.Scale = SmallText, .Bold = true});
-}
+constexpr int LabelWidth = 110;
 
 fs::path start_folder_of(const std::string &Text) {
     std::error_code Ignored;
@@ -33,77 +31,82 @@ fs::path start_folder_of(const std::string &Text) {
 
 SettingsPage::SettingsPage(const ViewServices &Context, Node Parent) : Services(Context) {
     const Builder &Ui = Services.Ui;
-    AppModel &Model = Services.Model;
     Body = Ui.frame(Parent, {.Fill = Stretch::Both, .Expand = true});
-
-    // 保存 / 载入 / 另存为固定在页面底部，表单内容较长时只滚动表单。
-    const Node Actions = Ui.frame(Body, {.Side = Edge::Bottom, .Fill = Stretch::X}, std::nullopt, 16);
-    const Node Buttons = Ui.frame(Actions, {.Fill = Stretch::X});
-    Ui.button(Buttons, {.Side = Edge::Left, .PadRight = 8, .Width = 100, .Height = FieldHeight}, "保存配置", "FILE_TICK",
-              [&Model] { Model.save_config(); });
-    Ui.button(Buttons, {.Side = Edge::Left, .PadRight = 8, .Width = 116, .Height = FieldHeight}, "载入配置…", "FILE_FOLDER",
-              [this] { load_dialog(); });
-    Ui.button(Buttons, {.Side = Edge::Left, .Width = 100, .Height = FieldHeight}, "另存为…", "EXPORT",
-              [this] { save_as_dialog(); });
-    ConfigPathLabel = Ui.label(Actions, {.Fill = Stretch::X, .PadTop = 8}, "", {.Color = &Palette::Muted, .Scale = SmallText});
-    Ui.divider(Body, {.Side = Edge::Bottom, .Fill = Stretch::X});
+    build_toolbar();
 
     const Node Scroll = Body.add(Node::create("scroll"), {.Fill = Stretch::Both, .Expand = true});
-    const Node Content = Ui.frame(Scroll, {.Fill = Stretch::X}, std::nullopt, 20);
+    const Node Content = Ui.frame(Scroll, {.Fill = Stretch::X}, std::nullopt, 24);
 
-    Ui.label(Content, {.Fill = Stretch::X}, "路径与配置", {.Scale = TitleText, .Bold = true});
-    Ui.label(Content, {.Fill = Stretch::X, .PadTop = 4}, "地图、脚本与存档的运行位置",
-             {.Color = &Palette::Muted, .Scale = SmallText});
-
-    const auto build_group = [&](std::string_view Title, int Top, std::initializer_list<PathRow> Rows,
-                                 const char *Hint) {
-        group_title(Ui, Content, Title, Top);
-        const Node Card = Ui.card(Content, {.Fill = Stretch::X}, 12);
-        std::size_t Remaining = Rows.size();
+    const auto build_paths = [&](std::initializer_list<PathRow> Rows) {
+        const Node Group = group(Content);
         for (const PathRow &Spec : Rows) {
-            build_path_row(Card, Spec, --Remaining == 0 && Hint == nullptr);
-        }
-        if (Hint != nullptr) {
-            Ui.label(Card, {.Fill = Stretch::X}, Hint, {.Color = &Palette::Muted, .Scale = SmallText});
+            build_path_row(Group, Spec);
         }
     };
-    build_group("地图与脚本", 18,
-                {{PathField::Map, "地图文件", false},
+    build_paths({{PathField::Map, "地图文件", false},
                  {PathField::LocalEntry, "客户端入口", false},
-                 {PathField::CloudScripts, "云脚本目录", true}},
-                nullptr);
-    build_group("存档", 12, {{PathField::Archives, "存档目录", true}}, "按玩家分别保存，重新启动后继续读取");
-    build_group("运行环境", 12,
-                {{PathField::Editor, "KKWE 编辑器", true},
+                 {PathField::CloudScripts, "云脚本目录", true}});
+    build_paths({{PathField::Archives, "存档目录", true}});
+    build_paths({{PathField::Editor, "KKWE 编辑器", true},
                  {PathField::SourceGame, "原魔兽目录", true},
-                 {PathField::Game, "共用测试魔兽", true}},
-                nullptr);
+                 {PathField::Game, "共用测试魔兽", true}});
+    build_limits(Content);
+    build_appearance(Content);
 
-    group_title(Ui, Content, "运行时限", 12);
-    const Node Limits = Ui.card(Content, {.Fill = Stretch::X}, 12);
-    const Node Row = Ui.frame(Limits, {.Fill = Stretch::X});
-    Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y}, "服务时长（秒）");
-    SecondsField = Ui.text_field(Row, {.Side = Edge::Left, .PadLeft = 8, .PadRight = 20, .Width = 90, .Height = FieldHeight},
-                                 Model.draft().Seconds, [&Model](const std::string &Text) { Model.draft().Seconds = Text; });
-    Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y}, "启动超时（秒）");
-    TimeoutField = Ui.text_field(Row, {.Side = Edge::Left, .PadLeft = 8, .Width = 90, .Height = FieldHeight},
-                                 Model.draft().Timeout, [&Model](const std::string &Text) { Model.draft().Timeout = Text; });
-
-    SeenRevision = Model.draft_revision();
+    ConfigPathLabel = Ui.label(Content, {.Fill = Stretch::X, .PadTop = 4}, "", {.Color = &Palette::Text3});
+    SeenRevision = Services.Model.draft_revision();
 }
 
-void SettingsPage::build_path_row(Node Card, const PathRow &Spec, bool Last) {
+void SettingsPage::build_toolbar() {
+    const Builder &Ui = Services.Ui;
+    AppModel &Model = Services.Model;
+    const Node Toolbar = Ui.frame(Body, {.Side = Edge::Top, .Fill = Stretch::X, .Height = geometry::ToolbarHeight});
+    Ui.label(Toolbar, {.Side = Edge::Left, .Fill = Stretch::Y, .PadLeft = 20}, "设置", {.Scale = TitleText, .Bold = true});
+    Ui.pill(Toolbar, {.Side = Edge::Right, .PadRight = 16}, "保存配置", Tone::Primary, [&Model] { Model.save_config(); });
+    Ui.pill(Toolbar, {.Side = Edge::Right, .PadRight = 8}, "载入配置…", Tone::Secondary, [this] { load_dialog(); });
+    Ui.pill(Toolbar, {.Side = Edge::Right, .PadRight = 4}, "另存为…", Tone::Secondary, [this] { save_as_dialog(); });
+}
+
+Node SettingsPage::group(Node Content) const {
+    return Services.Ui.frame(Content, {.Fill = Stretch::X, .PadBottom = 22});
+}
+
+void SettingsPage::build_path_row(Node Group, const PathRow &Spec) {
     const Builder &Ui = Services.Ui;
     AppModel &Model = Services.Model;
     const auto Index = static_cast<std::size_t>(Spec.Field);
-    const Node Row = Ui.frame(Card, {.Fill = Stretch::X, .PadBottom = Last ? 0 : 8});
-    Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = 96}, Spec.Label);
-    Ui.button(Row, {.Side = Edge::Right, .PadLeft = 8, .Width = 34, .Height = FieldHeight}, "", "FILE_FOLDER",
-              [this, Field = Spec.Field, Title = Spec.Label, Directory = Spec.Directory] { browse(Field, Title, Directory); })
-        .str("description", std::string("浏览") + Spec.Label);
+    const Node Row = Ui.frame(Group, {.Fill = Stretch::X, .PadBottom = 10});
+    Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = LabelWidth}, Spec.Label, {.Color = &Palette::Text2});
+    Ui.icon_button(Row, {.Side = Edge::Right, .PadLeft = 6}, "FILE_FOLDER", std::string("浏览") + Spec.Label,
+                   [this, Field = Spec.Field, Title = Spec.Label, Directory = Spec.Directory] {
+                       browse(Field, Title, Directory);
+                   });
     PathFields[Index] = Ui.text_field(
-        Row, {.Side = Edge::Left, .Fill = Stretch::X, .Expand = true, .Height = FieldHeight}, Model.draft().path(Spec.Field),
+        Row, {.Side = Edge::Left, .Fill = Stretch::X, .Expand = true, .Height = geometry::FieldHeight},
+        Model.draft().path(Spec.Field),
         [&Model, Field = Spec.Field](const std::string &Text) { Model.draft().path(Field) = Text; });
+}
+
+void SettingsPage::build_limits(Node Content) {
+    const Builder &Ui = Services.Ui;
+    AppModel &Model = Services.Model;
+    const Node Row = Ui.frame(group(Content), {.Fill = Stretch::X});
+    Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = LabelWidth}, "服务时长", {.Color = &Palette::Text2});
+    SecondsField = Ui.text_field(Row, {.Side = Edge::Left, .Width = 100, .Height = geometry::FieldHeight},
+                                 Model.draft().Seconds, [&Model](const std::string &Text) { Model.draft().Seconds = Text; });
+    Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y, .PadLeft = 8, .PadRight = 32}, "秒", {.Color = &Palette::Text3});
+    Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y, .PadRight = 12}, "启动超时", {.Color = &Palette::Text2});
+    TimeoutField = Ui.text_field(Row, {.Side = Edge::Left, .Width = 100, .Height = geometry::FieldHeight},
+                                 Model.draft().Timeout, [&Model](const std::string &Text) { Model.draft().Timeout = Text; });
+    Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y, .PadLeft = 8}, "秒", {.Color = &Palette::Text3});
+}
+
+void SettingsPage::build_appearance(Node Content) {
+    const Builder &Ui = Services.Ui;
+    const Node Row = Ui.frame(group(Content), {.Fill = Stretch::X});
+    Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = LabelWidth}, "主题色", {.Color = &Palette::Text2});
+    add_accent_picker(Ui, Row, {.Side = Edge::Left}, Services.Model);
+    ThemeName = Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y, .PadLeft = 12}, "");
 }
 
 HWND SettingsPage::owner() const {
@@ -161,7 +164,8 @@ void SettingsPage::sync() {
         SeenRevision = Model.draft_revision();
         push_draft_to_controls();
     }
-    ConfigPathLabel.set_text(path_to_utf8(Model.config_path()));
+    ThemeName.set_text(theme_label(Model.theme()));
+    ConfigPathLabel.set_text("配置文件  " + path_to_utf8(Model.config_path()));
 }
 
 } // namespace scriptroom::gui
