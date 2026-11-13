@@ -1,0 +1,7 @@
+// ScriptRoom.exe 与 ScriptRoomCLI.exe 共用的 Windows 资源。
+// ScriptRoom.ico 由同目录的 ScriptRoom.svg 渲染：256 帧为 PNG，16–64 帧为 32 位 BMP。
+#pragma code_page(65001)
+
+#include "AppResources.h"
+
+IDI_SCRIPTROOM ICON "ScriptRoom.ico"

@@ -1,0 +1,12 @@
+file(GLOB SCRIPTROOM_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+# Gui*.cpp 测试界面的纯逻辑部分，只在构建界面时才有对应的库。
+if(TARGET scriptroom_gui_logic)
+  set(SCRIPTROOM_TEST_GUI_LIBRARY scriptroom_gui_logic)
+else()
+  list(FILTER SCRIPTROOM_TEST_SOURCES EXCLUDE REGEX "/Gui[^/]*[.]cpp$")
+endif()
+add_executable(scriptroom_tests ${SCRIPTROOM_TEST_SOURCES})
+target_link_libraries(scriptroom_tests PRIVATE scriptroom_core ${SCRIPTROOM_TEST_GUI_LIBRARY})
+target_link_options(scriptroom_tests PRIVATE /SUBSYSTEM:CONSOLE)
+add_test(NAME scriptroom_tests COMMAND scriptroom_tests)
+set_tests_properties(scriptroom_tests PROPERTIES TIMEOUT 300)
