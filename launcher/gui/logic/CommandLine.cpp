@@ -25,10 +25,8 @@ int dimension(const std::vector<std::string> &Tokens, std::string_view Name, int
 }
 
 ThemeKind capture_theme(const std::optional<std::string> &Name) {
-    if (Name == "light") {
-        return ThemeKind::Light;
-    }
-    return Name == "monochrome" ? ThemeKind::Monochrome : ThemeKind::Shadowworks;
+    const std::optional<ThemeKind> Known = Name ? theme_from_key(*Name) : std::nullopt;
+    return Known.value_or(ThemeKind::Blue);
 }
 
 Page capture_page(const std::optional<std::string> &Name) {
