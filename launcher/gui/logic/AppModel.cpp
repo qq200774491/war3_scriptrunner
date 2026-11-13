@@ -62,6 +62,20 @@ void AppModel::preview(Page Start, ThemeKind Kind, const std::string &Message) {
     }
 }
 
+void AppModel::set_stats_paused(bool On) {
+    if (On && !Frozen) {
+        Frozen = Board;
+    } else if (!On) {
+        Frozen.reset();
+    }
+}
+
+void AppModel::toggle_player(std::size_t Player) {
+    if (Player < HiddenPlayers.size()) {
+        HiddenPlayers.flip(Player);
+    }
+}
+
 void AppModel::log_notice(std::string Message) {
     Logs.append(Message);
     Notice = std::move(Message);
@@ -74,6 +88,12 @@ void AppModel::start(SessionMode Mode) {
     try {
         const Config Settings = Draft.to_config(ConfigPath);
         Worker = std::make_unique<SessionWorker>(MakeTask(Settings, Mode), Wake);
+        SamplingStats = Mode == SessionMode::Run;
+        if (SamplingStats) {
+            Board.reset();
+            Frozen.reset();
+            HiddenPlayers.reset();
+        }
         Notice = Mode == SessionMode::Check ? "检查配置中" : "启动中";
         Current = Page::Console;
     } catch (const std::exception &Failure) {
@@ -167,7 +187,7 @@ void AppModel::stop_and_exit() {
     Worker->stop();
 }
 
-void AppModel::absorb_worker() {
+void AppModel::absorb_worker(Clock::time_point Now) {
     if (!Worker) {
         return;
     }
@@ -176,16 +196,20 @@ void AppModel::absorb_worker() {
     for (const std::string &Line : Worker->take_logs()) {
         Logs.append(Line);
     }
+    if (SamplingStats) {
+        Board.sample(Worker->stats(), Now, Outcome.has_value()); // 结束时补采最后一次，停止后保留
+    }
     if (!Outcome) {
         return;
     }
     Worker.reset();
+    SamplingStats = false;
     log_notice(Outcome->Failure ? std::format("故障：{}", *Outcome->Failure) : std::string("已结束"));
     QuitRequested = QuitRequested || ExitAfterStop;
 }
 
 void AppModel::tick(Clock::time_point Now) {
-    absorb_worker();
+    absorb_worker(Now);
     for (std::string &Message : Closer.poll(Now)) {
         log_notice(std::move(Message));
     }

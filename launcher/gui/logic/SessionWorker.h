@@ -2,6 +2,7 @@
 
 #include "Config.h"
 #include "Room.h"
+#include "RunStats.h"
 #include "Sync.h"
 
 #include <functional>
@@ -17,8 +18,8 @@ namespace scriptroom::gui {
 /// “启动”跑完整一轮；“检查”只验证配置与组件。
 enum class SessionMode { Run, Check };
 
-/// 后台线程里执行的整个任务。抛出的异常即任务失败原因。
-using SessionTask = std::function<void(StopHandle, std::shared_ptr<LogChannel>)>;
+/// 后台线程里执行的整个任务。抛出的异常即任务失败原因。任务把这一轮的运行统计记进第三个参数。
+using SessionTask = std::function<void(StopHandle, std::shared_ptr<LogChannel>, std::shared_ptr<RunStats>)>;
 
 /// 真实任务：Check 调用 check_setup，Run 调用 run_session。
 SessionTask make_session_task(const fs::path &Root, Config Settings, SessionMode Mode);
@@ -49,6 +50,9 @@ public:
     /// 任务已结束时返回结果，否则返回空。
     std::optional<Outcome> finished();
 
+    /// 这一轮运行统计的快照；任务运行中和结束后都可以读。
+    RunStatsSnapshot stats() const { return Stats->snapshot(); }
+
 private:
     void run_task(const SessionTask &Task);
     void relay_logs();
@@ -56,6 +60,7 @@ private:
 
     StopHandle Stop = std::make_shared<StopSignal>();
     std::shared_ptr<LogChannel> Logs = std::make_shared<LogChannel>(2048);
+    std::shared_ptr<RunStats> Stats = std::make_shared<RunStats>();
     std::function<void()> Wake;
 
     std::mutex Mutex;

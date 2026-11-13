@@ -16,14 +16,14 @@ using namespace gui_fakes;
 using namespace testing;
 
 SessionTask quick_task() {
-    return [](StopHandle, std::shared_ptr<LogChannel> Logs) {
+    return [](StopHandle, std::shared_ptr<LogChannel> Logs, std::shared_ptr<RunStats>) {
         Logs->send("first");
         Logs->send("second\nthird");
     };
 }
 
 SessionTask failing_task() {
-    return [](StopHandle, std::shared_ptr<LogChannel> Logs) {
+    return [](StopHandle, std::shared_ptr<LogChannel> Logs, std::shared_ptr<RunStats>) {
         Logs->send("before failure");
         throw Error("boom");
     };
@@ -31,7 +31,7 @@ SessionTask failing_task() {
 
 /// 一直运行到收到停止请求，模拟正在服务的房间。
 SessionTask serving_task() {
-    return [](StopHandle Stop, std::shared_ptr<LogChannel> Logs) {
+    return [](StopHandle Stop, std::shared_ptr<LogChannel> Logs, std::shared_ptr<RunStats>) {
         Logs->send("serving");
         while (!Stop->wait_for(std::chrono::milliseconds(5))) {
         }
@@ -159,6 +159,74 @@ const Registrar ModelRunsSessionToCompletion("gui.model.run_session_lifecycle", 
     check_equal(Logs.at(0).Text, std::string("serving"));
     check_equal(Logs.at(Logs.size() - 2).Text, std::string("stopped"));
     check(Test.Wakes.load() > 0);
+});
+
+/// 像真实房间一样记几次请求后结束。
+SessionTask recording_task() {
+    return [](StopHandle, std::shared_ptr<LogChannel>, std::shared_ptr<RunStats> Stats) {
+        Stats->begin(3);
+        Stats->record_request(0, std::chrono::milliseconds(20), false);
+        Stats->record_request(2, std::chrono::milliseconds(40), true);
+        Stats->record_room_event();
+        Stats->end();
+    };
+}
+
+const Registrar ModelKeepsStatsAfterRun("gui.model.stats_sampled_and_kept_after_stop", [] {
+    ModelFixture Test;
+    check(!Test.Model->stats().has_data());
+    check(!Test.Model->needs_timer());
+    Test.Task = recording_task();
+    Test.Model->start(SessionMode::Run);
+    check(Test.Model->needs_timer()); // 运行中每秒采样
+    check(Test.wait_until_idle());
+    check(!Test.Model->needs_timer());
+
+    const StatsBoard &Board = Test.Model->stats();
+    check(Board.has_data(), "停止后保留最后一轮的数据");
+    check(!Board.latest().Running);
+    check_equal(Board.latest().Players.size(), std::size_t(3));
+    check_equal(Board.latest().Players[2].Failures, std::uint64_t(1));
+    check_equal(Board.latest().RoomEvents, std::uint64_t(1));
+
+    // 检查配置不动统计；新的一轮启动才清零。
+    Test.Task = quick_task();
+    Test.Model->start(SessionMode::Check);
+    check(Test.wait_until_idle());
+    check(Test.Model->stats().has_data());
+    Test.Task = quick_task();
+    Test.Model->start(SessionMode::Run);
+    check(Test.wait_until_idle());
+    check(!Test.Model->stats().has_data(), "这一轮没启动云服务，统计是空的");
+});
+
+const Registrar ModelStatsDisplayOptions("gui.model.stats_pause_range_and_legend", [] {
+    ModelFixture Test;
+    Test.Model->preview_stats(sample_stats_board());
+    const std::size_t Points = Test.Model->stats().event_rate().size();
+    check(Points > 0);
+
+    Test.Model->set_stats_paused(true);
+    check(Test.Model->stats_paused());
+    Test.Model->preview_stats(StatsBoard()); // 后台数据变了，暂停中看到的不变
+    check_equal(Test.Model->stats().event_rate().size(), Points);
+    Test.Model->set_stats_paused(false);
+    check(!Test.Model->stats_paused());
+    check_equal(Test.Model->stats().event_rate().size(), std::size_t(0));
+
+    check(Test.Model->stats_range() == TrendRange::Minute);
+    Test.Model->set_stats_range(TrendRange::FiveMinutes);
+    check(Test.Model->stats_range() == TrendRange::FiveMinutes);
+    check_equal(range_seconds(TrendRange::FiveMinutes), std::size_t(300));
+    check_equal(std::string(range_label(TrendRange::HalfMinute)), std::string("30 秒"));
+
+    check(!Test.Model->player_hidden(1));
+    Test.Model->toggle_player(1);
+    check(Test.Model->player_hidden(1));
+    Test.Model->toggle_player(1);
+    check(!Test.Model->player_hidden(1));
+    Test.Model->toggle_player(99); // 越界忽略
+    check(!Test.Model->player_hidden(99));
 });
 
 const Registrar ModelReportsFailureAndCheckMode("gui.model.failure_and_check_mode", [] {

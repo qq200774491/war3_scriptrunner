@@ -8,13 +8,15 @@ namespace scriptroom::gui {
 
 SessionTask make_session_task(const fs::path &Root, Config Settings, SessionMode Mode) {
     if (Mode == SessionMode::Check) {
-        return [Root, Settings = std::move(Settings)](StopHandle, std::shared_ptr<LogChannel> Logs) {
+        return [Root, Settings = std::move(Settings)](StopHandle, std::shared_ptr<LogChannel> Logs,
+                                                      std::shared_ptr<RunStats>) {
             check_setup(Root, Settings);
             Logs->try_send("[检查] 配置及组件通过；启动时检查端口与存档锁。");
         };
     }
-    return [Root, Settings = std::move(Settings)](StopHandle Stop, std::shared_ptr<LogChannel> Logs) {
-        run_session(Root, Settings, std::move(Stop), std::move(Logs));
+    return [Root, Settings = std::move(Settings)](StopHandle Stop, std::shared_ptr<LogChannel> Logs,
+                                                  std::shared_ptr<RunStats> Stats) {
+        run_session(Root, Settings, std::move(Stop), std::move(Logs), std::move(Stats));
     };
 }
 
@@ -53,7 +55,7 @@ void SessionWorker::relay_logs() {
 void SessionWorker::run_task(const SessionTask &Task) {
     Outcome Finished;
     try {
-        Task(Stop, Logs);
+        Task(Stop, Logs, Stats);
     } catch (const std::exception &Failure) {
         Finished.Failure = Failure.what();
     } catch (...) {

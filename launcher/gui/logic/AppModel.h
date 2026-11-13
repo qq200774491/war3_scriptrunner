@@ -5,8 +5,10 @@
 #include "LogModel.h"
 #include "Page.h"
 #include "SessionWorker.h"
+#include "StatsBoard.h"
 #include "Theme.h"
 
+#include <bitset>
 #include <chrono>
 #include <filesystem>
 #include <functional>
@@ -67,8 +69,8 @@ public:
     /// 草稿当前能否解析成配置（检查器展示运行路径用）；不能时为空。
     std::optional<Config> resolved_config() const;
 
-    /// 需要周期性 tick（等待宽限期时）。其余情况由 Wake 触发 tick。
-    bool needs_timer() const { return Closer.needs_polling(); }
+    /// 需要周期性 tick：等待宽限期时，以及服务运行中（运行统计每秒采样）。其余情况由 Wake 触发 tick。
+    bool needs_timer() const { return Closer.needs_polling() || SamplingStats; }
 
     /// 界面事件处理中出现的错误：显示在状态栏。
     void report(std::string Message) { Notice = std::move(Message); }
@@ -86,6 +88,18 @@ public:
     void set_theme(ThemeKind Kind);
     /// 截图模式使用：直接设定页面、主题和提示，不写盘。
     void preview(Page Start, ThemeKind Kind, const std::string &Message);
+
+    // ---- 运行统计 ----
+    /// 暂停时是暂停那一刻的数据；后台照常采样，继续时跳回最新。
+    const StatsBoard &stats() const { return Frozen ? *Frozen : Board; }
+    bool stats_paused() const { return Frozen.has_value(); }
+    void set_stats_paused(bool On);
+    TrendRange stats_range() const { return Range; }
+    void set_stats_range(TrendRange Value) { Range = Value; }
+    bool player_hidden(std::size_t Player) const { return Player < HiddenPlayers.size() && HiddenPlayers[Player]; }
+    void toggle_player(std::size_t Player);
+    /// 截图模式使用：直接换上一份统计数据。
+    void preview_stats(StatsBoard Sample) { Board = std::move(Sample); }
 
     // ---- 服务 ----
     /// 启动或检查。草稿无效时切换到配置页并在提示里说明原因。
@@ -113,7 +127,7 @@ public:
 
 private:
     void log_notice(std::string Message);
-    void absorb_worker();
+    void absorb_worker(Clock::time_point Now);
 
     fs::path Root;
     fs::path ConfigPath;
@@ -130,6 +144,11 @@ private:
     SessionTaskFactory MakeTask;
     std::function<void()> Wake;
     std::unique_ptr<SessionWorker> Worker;
+    bool SamplingStats = false; ///< 当前任务是“启动”，它的统计要采样
+    StatsBoard Board;
+    std::optional<StatsBoard> Frozen;
+    TrendRange Range = TrendRange::Minute;
+    std::bitset<RunStats::MaxPlayers> HiddenPlayers;
     GameCloser Closer;
     bool ConfirmExit = false;
     bool ExitAfterStop = false;

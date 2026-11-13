@@ -110,6 +110,7 @@ RunStatsSnapshot snapshot(std::uint64_t Requests, double TotalMs, std::uint64_t 
     Result.RoomEvents = Events;
     Result.LogLines = Lines;
     Result.Backlog = Backlog;
+    Result.Began = true;
     Result.Running = true;
     Result.Uptime = 1000ms;
     return Result;
