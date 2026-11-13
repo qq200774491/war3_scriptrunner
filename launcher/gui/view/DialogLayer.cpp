@@ -13,19 +13,17 @@ DialogLayer::DialogLayer(const ViewServices &Context, Node Root) : Services(Cont
     Force.add(ForceSummary.node(), {.Fill = Stretch::X, .PadBottom = 6});
     Force.add(ForcePids.node(), {.Fill = Stretch::X, .PadBottom = 16});
     const Node ForceButtons = Ui.frame(Force, {.Fill = Stretch::X});
-    Ui.button(ForceButtons, {.Side = Edge::Right, .Width = 96, .Height = 28}, "强制结束", "CANCEL",
-              [&Model] { Model.confirm_force_close(); });
-    Ui.button(ForceButtons, {.Side = Edge::Right, .PadRight = 8, .Width = 80, .Height = 28}, "取消", nullptr,
-              [&Model] { Model.cancel_force_close(); });
+    Ui.pill(ForceButtons, {.Side = Edge::Right}, "强制结束", Tone::Danger, [&Model] { Model.confirm_force_close(); });
+    Ui.pill(ForceButtons, {.Side = Edge::Right, .PadRight = 8}, "取消", Tone::Secondary,
+            [&Model] { Model.cancel_force_close(); });
 
     ExitOverlay = make_overlay(Root);
-    const Node Exit = make_card(ExitOverlay, "退出 ScriptRoom");
+    const Node Exit = make_card(ExitOverlay, "退出云脚本Test启动器");
     Exit.add(ExitMessage.node(), {.Fill = Stretch::X, .PadBottom = 16});
     const Node ExitButtons = Ui.frame(Exit, {.Fill = Stretch::X});
-    Ui.button(ExitButtons, {.Side = Edge::Right, .Width = 110, .Height = 28}, "停止并退出", nullptr,
-              [&Model] { Model.stop_and_exit(); });
-    Ui.button(ExitButtons, {.Side = Edge::Right, .PadRight = 8, .Width = 96, .Height = 28}, "继续运行", nullptr,
-              [&Model] { Model.keep_running(); });
+    Ui.pill(ExitButtons, {.Side = Edge::Right}, "停止并退出", Tone::Danger, [&Model] { Model.stop_and_exit(); });
+    Ui.pill(ExitButtons, {.Side = Edge::Right, .PadRight = 8}, "继续运行", Tone::Secondary,
+            [&Model] { Model.keep_running(); });
     ExitMessage.set_text("云服务正在运行，退出会中断本轮云脚本。");
 
     Ui.style().watch([this](const Palette &Colors) {
@@ -48,8 +46,8 @@ Node DialogLayer::make_overlay(Node Root) const {
 }
 
 Node DialogLayer::make_card(Node Overlay, std::string_view Title) const {
-    const Node Card = Services.Ui.card(Overlay, {.Expand = true, .Width = 400}, 20);
-    Services.Ui.label(Card, {.Fill = Stretch::X, .PadBottom = 10}, Title, {.Scale = TitleText, .Bold = true});
+    const Node Card = Services.Ui.card(Overlay, {.Expand = true, .Width = 400}, 22, &Palette::Popup, 9);
+    Services.Ui.label(Card, {.Fill = Stretch::X, .PadBottom = 12}, Title, {.Scale = TitleText, .Bold = true});
     return Card;
 }
 
