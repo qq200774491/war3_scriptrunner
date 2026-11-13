@@ -277,10 +277,8 @@ const Registrar ModelClosingWindowWhileRunning("gui.model.window_close_flow", []
 
 const Registrar ModelLogSelectionAndClearing("gui.model.log_selection", [] {
     ModelFixture Test;
-    Test.Model->set_inspector_open(false);
     Test.Model->append_log("alpha\nbeta");
     Test.Model->select_log("beta");
-    check(Test.Model->inspector_open()); // 点击日志行会展开详情栏
     check_equal(*Test.Model->selected_log(), std::string("beta"));
 
     Test.Model->show_scope(LogScope::Errors);

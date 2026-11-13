@@ -33,7 +33,6 @@ void AppModel::show_scope(LogScope Scope) {
 
 void AppModel::select_log(std::string Line) {
     SelectedLog = std::move(Line);
-    InspectorOpen = true;
 }
 
 void AppModel::clear_logs() {

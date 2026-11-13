@@ -51,7 +51,6 @@ public:
     const LogModel &logs() const { return Logs; }
     const LogFilter &filter() const { return Filter; }
     bool follow() const { return Follow; }
-    bool inspector_open() const { return InspectorOpen; }
     const std::optional<std::string> &selected_log() const { return SelectedLog; }
     bool running() const { return Worker != nullptr; }
     bool closing_games() const { return Closer.busy(); }
@@ -80,7 +79,6 @@ public:
     void show_scope(LogScope Scope);
     void set_query(std::string Query) { Filter.Query = std::move(Query); }
     void set_follow(bool On) { Follow = On; }
-    void set_inspector_open(bool On) { InspectorOpen = On; }
     void select_log(std::string Line);
     void clear_logs();
     /// 追加日志文本（按行拆分）；用于预览历史日志。
@@ -139,7 +137,6 @@ private:
     LogModel Logs;
     LogFilter Filter;
     bool Follow = true;
-    bool InspectorOpen = true;
     std::optional<std::string> SelectedLog;
     SessionTaskFactory MakeTask;
     std::function<void()> Wake;

@@ -12,6 +12,4 @@ inline constexpr int FieldHeight = 30;
 inline constexpr int NavRowHeight = 38;
 inline constexpr int RailKeySize = 32;
 
-inline constexpr int InspectorMinimumWindow = 1080;
-
 } // namespace scriptroom::gui::geometry

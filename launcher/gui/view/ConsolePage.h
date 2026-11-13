@@ -16,6 +16,7 @@ private:
     const ViewServices &Services;
     Node Body;
     Node FollowCheck;
+    PillButton CopyLine;
     Node EmptyState;
     LogView Log;
 };

@@ -34,7 +34,6 @@ MainView::MainView(AppModel &State, EventRouter &Events, Node Root, std::functio
     const Node Shell = Ui.frame(Root, {.Fill = Stretch::Both, .Expand = true});
     Top = std::make_unique<TopBar>(Services, Shell);
     Navigation = std::make_unique<NavigationPanel>(Services, Shell);
-    Inspector = std::make_unique<InspectorPanel>(Services, Shell);
 
     const Node Workspace = Ui.frame(Shell, {.Fill = Stretch::Both, .Expand = true});
     Status = std::make_unique<StatusBar>(Services, Workspace);
@@ -57,17 +56,8 @@ void MainView::apply_theme_if_changed() {
     Colors.apply(palette_of(AppliedTheme));
 }
 
-void MainView::update_inspector_visibility() {
-    const bool Wide = WindowWidth == 0 || WindowWidth >= px(geometry::InspectorMinimumWindow);
-    const bool Shown = Model.inspector_open() && Wide;
-    Inspector->root().set_visible(Shown);
-    Top->set_inspector_visible(Shown);
-}
-
 void MainView::resize(int Width, int) {
-    WindowWidth = Width;
     Stats->resize(Width - px(geometry::RailWidth) - px(geometry::SideWidth));
-    update_inspector_visibility();
 }
 
 void MainView::sync() {
@@ -90,8 +80,6 @@ void MainView::sync() {
     }
     Settings->sync();
     Archives->sync(Resolved);
-    Inspector->sync(Resolved);
-    update_inspector_visibility();
     Dialogs->sync();
 }
 

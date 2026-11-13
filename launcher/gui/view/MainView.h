@@ -7,7 +7,6 @@
 #include "ConsolePage.h"
 #include "DialogLayer.h"
 #include "EventRouter.h"
-#include "InspectorPanel.h"
 #include "Navigation.h"
 #include "SettingsPage.h"
 #include "StatsPage.h"
@@ -40,7 +39,6 @@ public:
 
 private:
     void apply_theme_if_changed();
-    void update_inspector_visibility();
 
     AppModel &Model;
     Styler Colors;
@@ -50,7 +48,6 @@ private:
     std::unique_ptr<RailBar> Rail;
     std::unique_ptr<TopBar> Top;
     std::unique_ptr<NavigationPanel> Navigation;
-    std::unique_ptr<InspectorPanel> Inspector;
     std::unique_ptr<StatusBar> Status;
     std::unique_ptr<ConsolePage> Console;
     std::unique_ptr<StatsPage> Stats;
@@ -60,7 +57,6 @@ private:
     std::unique_ptr<DialogLayer> Dialogs;
 
     ThemeKind AppliedTheme;
-    int WindowWidth = 0;
 };
 
 } // namespace scriptroom::gui

@@ -10,15 +10,11 @@ public:
 
     void sync();
 
-    void set_inspector_visible(bool Shown);
-
 private:
     void build_brand(Node Bar);
 
     const ViewServices &Services;
     Node Search;
-    Node RightSegment;
-    bool InspectorShown = true;
 };
 
 } // namespace scriptroom::gui

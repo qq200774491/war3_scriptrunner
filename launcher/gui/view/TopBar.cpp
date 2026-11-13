@@ -9,7 +9,7 @@ namespace scriptroom::gui {
 namespace {
 
 constexpr int BrandIconSize = 26;
-constexpr int CompactRightWidth = 120;
+constexpr int ControlsWidth = 120;
 
 } // namespace
 
@@ -20,12 +20,10 @@ TopBar::TopBar(const ViewServices &Context, Node Parent) : Services(Context) {
 
     build_brand(Bar);
 
-    RightSegment = Ui.frame(Bar, {.Side = Edge::Right, .Fill = Stretch::Y, .Width = geometry::SideWidth});
-    add_window_controls(Ui, RightSegment, {.Side = Edge::Right, .Fill = Stretch::Y, .PadRight = 21}, Services.Owner);
+    const Node Controls = Ui.frame(Bar, {.Side = Edge::Right, .Fill = Stretch::Y, .Width = ControlsWidth});
+    add_window_controls(Ui, Controls, {.Side = Edge::Right, .Fill = Stretch::Y, .PadRight = 21}, Services.Owner);
 
     const Node Center = Ui.frame(Bar, {.Fill = Stretch::Both, .Expand = true});
-    Ui.icon_button(Center, {.Side = Edge::Right, .PadRight = 14}, "MENU_PANEL", "显示或隐藏详情",
-                   [&Model] { Model.set_inspector_open(!Model.inspector_open()); });
     Search = Center.add(Node::create("search"),
                         {.Side = Edge::Right, .PadRight = 10, .Width = 300, .Height = geometry::ButtonHeight + 4});
     Search.str("placeholder", "搜索日志");
@@ -44,15 +42,6 @@ void TopBar::build_brand(Node Bar) {
     }
     Ui.label(Brand, {.Side = Edge::Left, .Fill = Stretch::Y, .PadLeft = 10}, "云脚本Test启动器",
              {.Scale = TitleText, .Bold = true});
-}
-
-void TopBar::set_inspector_visible(bool Shown) {
-    if (InspectorShown == Shown) {
-        return;
-    }
-    InspectorShown = Shown;
-    RightSegment.set_pack({.Side = Edge::Right, .Fill = Stretch::Y,
-                           .Width = Shown ? geometry::SideWidth : CompactRightWidth});
 }
 
 void TopBar::sync() {
