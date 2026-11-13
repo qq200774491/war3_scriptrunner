@@ -290,6 +290,18 @@ const Registrar ModelLogSelectionAndClearing("gui.model.log_selection", [] {
     check(!Test.Model->selected_log().has_value());
 });
 
+const Registrar ModelSetsClientCount("gui.model.client_count_goes_into_draft", [] {
+    ModelFixture Test;
+    check_equal(Test.Model->draft().Clients, DefaultClients);
+    Test.Model->set_clients(3);
+    check_equal(Test.Model->draft().Clients, std::size_t(3));
+    check(Test.Model->notice().find("3 个客户端") != std::string::npos);
+    Test.Model->set_clients(9); // 超出范围不改
+    Test.Model->set_clients(0);
+    check_equal(Test.Model->draft().Clients, std::size_t(3));
+    check_equal(Test.Model->resolved_config()->Clients, std::size_t(3));
+});
+
 const Registrar ModelConfigFiles("gui.model.save_load_config", [] {
     ModelFixture Test;
     Test.Model->draft().Seconds = "7200";

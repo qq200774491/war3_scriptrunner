@@ -61,6 +61,14 @@ void AppModel::preview(Page Start, ThemeKind Kind, const std::string &Message) {
     }
 }
 
+void AppModel::set_clients(std::size_t Count) {
+    if (Count < MinClients || Count > MaxClients || Draft.Clients == Count) {
+        return;
+    }
+    Draft.Clients = Count;
+    Notice = std::format("下一轮开 {} 个客户端；在设置页保存配置后，下次打开也是这个数", Count);
+}
+
 void AppModel::set_stats_paused(bool On) {
     if (On && !Frozen) {
         Frozen = Board;

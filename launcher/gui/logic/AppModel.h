@@ -87,6 +87,9 @@ public:
     /// 截图模式使用：直接设定页面、主题和提示，不写盘。
     void preview(Page Start, ThemeKind Kind, const std::string &Message);
 
+    /// 改这一轮要开几个客户端（写进草稿，和其他配置一样保存后才写盘）。
+    void set_clients(std::size_t Count);
+
     // ---- 运行统计 ----
     /// 暂停时是暂停那一刻的数据；后台照常采样，继续时跳回最新。
     const StatsBoard &stats() const { return Frozen ? *Frozen : Board; }

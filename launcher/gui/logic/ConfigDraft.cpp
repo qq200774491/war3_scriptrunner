@@ -35,6 +35,7 @@ ConfigDraft ConfigDraft::from_config(const Config &Settings) {
     }
     Draft.Seconds = std::to_string(Settings.Seconds);
     Draft.Timeout = std::format("{}", Settings.StartupTimeout);
+    Draft.Clients = Settings.Clients;
     return Draft;
 }
 
@@ -51,6 +52,7 @@ Config ConfigDraft::to_config(const fs::path &ConfigPath) const {
     const auto ParsedTimeout = parse_double(trim(Timeout));
     require(ParsedTimeout.has_value(), "启动超时应为数字（秒）");
     Result.StartupTimeout = *ParsedTimeout;
+    Result.Clients = Clients;
     Result.validate_numbers();
 
     const fs::path Parent = absolute_path(ConfigPath).parent_path();

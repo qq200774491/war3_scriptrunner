@@ -26,6 +26,7 @@ struct ConfigDraft {
     std::array<std::string, PathFieldCount> Paths; ///< UTF-8
     std::string Seconds;
     std::string Timeout;
+    std::size_t Clients = DefaultClients; ///< 由分段选择设置，不是自由输入
 
     std::string &path(PathField Field) { return Paths[static_cast<std::size_t>(Field)]; }
     const std::string &path(PathField Field) const { return Paths[static_cast<std::size_t>(Field)]; }

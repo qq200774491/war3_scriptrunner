@@ -98,6 +98,19 @@ const Registrar DraftRejectsBadInput("gui.draft.rejects_bad_input", [] {
     check_equal(Trimmed.Map.filename(), fs::path("a.w3x"));
 });
 
+const Registrar DraftCarriesClientCount("gui.draft.client_count_round_trip", [] {
+    const TempDirectory Temp;
+    const fs::path ConfigPath = Temp.path() / "config.json";
+    ConfigDraft Draft = sample_draft();
+    check_equal(Draft.Clients, DefaultClients);
+    Draft.Clients = 3;
+    const Config Settings = Draft.to_config(ConfigPath);
+    check_equal(Settings.Clients, std::size_t(3));
+    check_equal(ConfigDraft::from_config(Settings).Clients, std::size_t(3));
+    Draft.Clients = 0;
+    check_throws([&] { Draft.to_config(ConfigPath); }, "客户端个数");
+});
+
 const Registrar ThemePalettesMatchDesign("gui.theme.palettes", [] {
     const Palette Blue = palette_of(ThemeKind::Blue);
     for (const ThemeKind Kind : AllThemes) {
