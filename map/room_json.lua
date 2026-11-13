@@ -1,101 +1,234 @@
--- 网络边界的 JSON 解码器；null 用独立值保留，禁止执行来自网络的 Lua。
 local M = {null = {}}
+
+local MAX_SOURCE_BYTES = 262144
+local MAX_DEPTH = 32
+
+local ESCAPES = {
+    ['"'] = '"',
+    ['\\'] = '\\',
+    ['/'] = '/',
+    b = '\b',
+    f = '\f',
+    n = '\n',
+    r = '\r',
+    t = '\t',
+}
+
+local LITERALS = {
+    {'true', true},
+    {'false', false},
+    {'null', M.null},
+}
+
+---@class JsonParser
+---@field source string
+---@field at integer
+local Parser = {}
+Parser.__index = Parser
+
+---@param source string
+---@return JsonParser
+local function new_parser(source)
+    return setmetatable({source = source, at = 1}, Parser)
+end
+
+function Parser:peek()
+    return self.source:sub(self.at, self.at)
+end
+
+function Parser:advance()
+    local char = self:peek()
+    self.at = self.at + 1
+    return char
+end
+
+function Parser:skip_blank()
+    self.at = self.source:find('[^ \t\r\n]', self.at) or (#self.source + 1)
+end
+
+function Parser:close_if(closing)
+    if self:peek() ~= closing then
+        return false
+    end
+    self.at = self.at + 1
+    return true
+end
+
+function Parser:finish_member(closing)
+    self:skip_blank()
+    local char = self:advance()
+    if char == closing then
+        return true
+    end
+    if char ~= ',' then
+        error('comma expected', 0)
+    end
+    self:skip_blank()
+    return false
+end
+
+function Parser:read_hex4()
+    local digits = self.source:match('^%x%x%x%x', self.at) or error('invalid unicode escape', 0)
+    self.at = self.at + 4
+    return tonumber(digits, 16)
+end
+
+function Parser:read_unicode()
+    local code = self:read_hex4()
+    if code >= 0xdc00 and code <= 0xdfff then
+        error('unexpected low surrogate', 0)
+    end
+    if code < 0xd800 or code > 0xdbff then
+        return code
+    end
+    if self.source:sub(self.at, self.at + 1) ~= '\\u' then
+        error('missing low surrogate', 0)
+    end
+    self.at = self.at + 2
+    local low = self:read_hex4()
+    if low < 0xdc00 or low > 0xdfff then
+        error('invalid low surrogate', 0)
+    end
+    return 0x10000 + (code - 0xd800) * 1024 + low - 0xdc00
+end
+
+function Parser:read_escape()
+    local char = self:advance()
+    if char == 'u' then
+        return utf8.char(self:read_unicode())
+    end
+    return ESCAPES[char] or error('invalid escape', 0)
+end
+
+function Parser:read_string()
+    self.at = self.at + 1
+    local parts = {}
+    while self.at <= #self.source do
+        local char = self:advance()
+        if char == '"' then
+            return table.concat(parts)
+        end
+        if char == '\\' then
+            char = self:read_escape()
+        elseif char:byte() < 32 then
+            error('control character in string', 0)
+        end
+        parts[#parts + 1] = char
+    end
+    error('unterminated string', 0)
+end
+
+---@param text string
+---@return number|nil
+local function parse_number(text)
+    local mantissa, exponent = text:match('^(.-)[eE](.*)$')
+    if exponent and not exponent:match('^[+-]?%d+$') then
+        return nil
+    end
+    mantissa = mantissa or text
+    local integer, fraction = mantissa:match('^(.-)%.(.*)$')
+    if fraction and not fraction:match('^%d+$') then
+        return nil
+    end
+    integer = integer or mantissa
+    if not integer:match('^-?%d+$') or integer:match('^-?0%d') then
+        return nil
+    end
+    return tonumber(text)
+end
+
+function Parser:read_number()
+    local text = self.source:match('^[^%s,%]%}]+', self.at)
+    local value = text and parse_number(text)
+    if not text or not value then
+        error('invalid number', 0)
+    end
+    if math.abs(value) == math.huge then
+        error('nonfinite number', 0)
+    end
+    self.at = self.at + #text
+    return value
+end
+
+function Parser:read_array(depth)
+    self.at = self.at + 1
+    self:skip_blank()
+    local result = {}
+    if self:close_if(']') then
+        return result
+    end
+    while true do
+        result[#result + 1] = self:read_value(depth + 1)
+        if self:finish_member(']') then
+            return result
+        end
+    end
+end
+
+function Parser:read_object(depth)
+    self.at = self.at + 1
+    self:skip_blank()
+    local result = {}
+    if self:close_if('}') then
+        return result
+    end
+    while true do
+        if self:peek() ~= '"' then
+            error('object key expected', 0)
+        end
+        local key = self:read_string()
+        if result[key] ~= nil then
+            error('duplicate key', 0)
+        end
+        self:skip_blank()
+        if not self:close_if(':') then
+            error('colon expected', 0)
+        end
+        result[key] = self:read_value(depth + 1)
+        if self:finish_member('}') then
+            return result
+        end
+    end
+end
+
+function Parser:read_value(depth)
+    if depth > MAX_DEPTH then
+        error('JSON nesting too deep', 0)
+    end
+    self:skip_blank()
+    local char = self:peek()
+    if char == '"' then
+        return self:read_string()
+    end
+    if char == '{' then
+        return self:read_object(depth)
+    end
+    if char == '[' then
+        return self:read_array(depth)
+    end
+    for _, literal in ipairs(LITERALS) do
+        local text = literal[1]
+        if self.source:sub(self.at, self.at + #text - 1) == text then
+            self.at = self.at + #text
+            return literal[2]
+        end
+    end
+    return self:read_number()
+end
+
+---@param source string
+---@return any value
 function M.decode(source)
-    assert(type(source) == 'string' and #source <= 262144, 'invalid JSON size')
-    local at = 1
-    local function skip() at = source:find('[^ \t\r\n]', at) or (#source + 1) end
-    local function hex4()
-        local value = source:sub(at, at + 3)
-        assert(value:match('^%x%x%x%x$'), 'invalid unicode escape')
-        at = at + 4
-        return tonumber(value, 16)
+    if #source > MAX_SOURCE_BYTES then
+        error('invalid JSON size', 0)
     end
-    local escapes = {['"'] = '"', ['\\'] = '\\', ['/'] = '/', b = '\b', f = '\f', n = '\n', r = '\r', t = '\t'}
-    local function quoted()
-        at = at + 1
-        local result = {}
-        while at <= #source do
-            local char = source:sub(at, at)
-            at = at + 1
-            if char == '"' then return table.concat(result) end
-            if char == '\\' then
-                char = source:sub(at, at)
-                at = at + 1
-                if char == 'u' then
-                    local code = hex4()
-                    if code >= 0xd800 and code <= 0xdbff then
-                        assert(source:sub(at, at + 1) == '\\u', 'missing low surrogate')
-                        at = at + 2
-                        local low = hex4()
-                        assert(low >= 0xdc00 and low <= 0xdfff, 'invalid low surrogate')
-                        code = 0x10000 + (code - 0xd800) * 1024 + low - 0xdc00
-                    else
-                        assert(code < 0xdc00 or code > 0xdfff, 'unexpected low surrogate')
-                    end
-                    char = utf8.char(code)
-                else
-                    char = assert(escapes[char], 'invalid escape')
-                end
-            else
-                assert(char:byte() >= 32, 'control character in string')
-            end
-            result[#result + 1] = char
-        end
-        error('unterminated string')
+    local parser = new_parser(source)
+    local result = parser:read_value(0)
+    parser:skip_blank()
+    if parser.at <= #source then
+        error('trailing JSON data', 0)
     end
-    local parse
-    local function container(depth, object)
-        at = at + 1
-        skip()
-        local result, seen = {}, {}
-        local last = object and '}' or ']'
-        if source:sub(at, at) == last then at = at + 1; return result end
-        while true do
-            local key = #result + 1
-            if object then
-                assert(source:sub(at, at) == '"', 'object key expected')
-                key = quoted()
-                assert(not seen[key], 'duplicate key')
-                seen[key] = true
-                skip()
-                assert(source:sub(at, at) == ':', 'colon expected')
-                at = at + 1
-            end
-            result[key] = parse(depth + 1)
-            skip()
-            local char = source:sub(at, at)
-            at = at + 1
-            if char == last then return result end
-            assert(char == ',', 'comma expected')
-            skip()
-        end
-    end
-    function parse(depth)
-        assert(depth <= 32, 'JSON nesting too deep')
-        skip()
-        local char = source:sub(at, at)
-        if char == '"' then return quoted() end
-        if char == '{' or char == '[' then return container(depth, char == '{') end
-        for literal, value in pairs({['true'] = true, ['false'] = false, ['null'] = M.null}) do
-            if source:sub(at, at + #literal - 1) == literal then at = at + #literal; return value end
-        end
-        local number = source:sub(at):match('^[^%s,%]%}]+')
-        assert(number, 'invalid number')
-        local mantissa, exponent = number:match('^(.-)[eE](.*)$')
-        if exponent then assert(exponent:match('^[+-]?%d+$'), 'invalid exponent') end
-        mantissa = mantissa or number
-        local integer, fraction = mantissa:match('^(.-)%.(.*)$')
-        if fraction then assert(fraction:match('^%d+$'), 'invalid fraction') end
-        integer = integer or mantissa
-        assert(integer:match('^-?%d+$') and not integer:match('^-?0%d'), 'invalid integer')
-        local value = assert(tonumber(number), 'invalid number')
-        assert(value == value and math.abs(value) < math.huge, 'nonfinite number')
-        at = at + #number
-        return value
-    end
-    local result = parse(0)
-    skip()
-    assert(at > #source, 'trailing JSON data')
     return result
 end
+
 return M
