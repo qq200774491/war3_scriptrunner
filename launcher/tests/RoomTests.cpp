@@ -7,6 +7,7 @@
 #include "GlobalArchive.h"
 #include "Host.h"
 #include "Room.h"
+#include "RunStats.h"
 #include "Socket.h"
 #include "TestHarness.h"
 #include "Text.h"
@@ -110,6 +111,7 @@ private:
 struct TestRoom {
     TempDirectory State;
     std::shared_ptr<LogChannel> Logs = std::make_shared<LogChannel>(2048);
+    std::shared_ptr<RunStats> Stats = std::make_shared<RunStats>();
     std::unique_ptr<Room> Active;
     std::unique_ptr<Client> Zero;
     std::unique_ptr<Client> One;
@@ -121,7 +123,8 @@ struct TestRoom {
             while (Logs->recv()) {
             }
         });
-        Active = Room::start(host_config(root() / L"tests" / L"scripts" / L"counter", State.path()), Relay, Logs);
+        Stats->begin(2);
+        Active = Room::start(host_config(root() / L"tests" / L"scripts" / L"counter", State.path()), Relay, Logs, Stats);
         Zero = std::make_unique<Client>(Active->profiles()[0]);
         One = std::make_unique<Client>(Active->profiles()[1]);
         Zero->expect("ready");
@@ -155,6 +158,25 @@ const Registrar RealDllSharedState("room.real_dll_shared_state_dedup_and_identit
     Room.Zero->send(Json{{"id", "spoof"}, {"event", "increment"}, {"payload", "100"}, {"player", 1}});
     Room.Zero->expect("error");
     check_equal(Room.One->exchange("query", "query", "").first["payload"], "12");
+});
+
+const Registrar RoomRecordsStats("room.records_request_stats_and_events", [] {
+    TestRoom Room(std::nullopt);
+    Room.Zero->exchange("a", "increment", "1");
+    Room.Zero->exchange("b", "increment", "1");
+    Room.One->exchange("c", "increment", "1");
+    Room.Zero->send(Json{{"id", "a"}, {"event", "increment"}, {"payload", "changed"}});
+    Room.Zero->expect("error");
+
+    const RunStatsSnapshot Now = Room.Stats->snapshot();
+    check_equal(Now.Players[0].Latency.Count, std::uint64_t(3));
+    check_equal(Now.Players[0].Failures, std::uint64_t(1));
+    check_equal(Now.Players[1].Latency.Count, std::uint64_t(1));
+    check_equal(Now.Players[1].Failures, std::uint64_t(0));
+    check(Now.Players[0].Latency.MaxMs > 0.0, "请求耗时应大于零");
+    check_equal(Now.RoomEvents, std::uint64_t(3));
+    check(Now.PeakBacklog >= 1, "请求经过宿主队列，峰值至少为 1");
+    check_equal(Now.Backlog, std::size_t(0));
 });
 
 const Registrar ConcurrentRequests("room.concurrent_requests_timer_broadcast_and_disconnect", [] {

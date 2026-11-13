@@ -2,6 +2,7 @@
 
 #include "Host.h"
 #include "Json.h"
+#include "RunStats.h"
 #include "Sync.h"
 
 #include <array>
@@ -43,8 +44,9 @@ public:
     /// 绑定端口、生成凭据并启动服务线程。
     /// @param Relay 若有值，所有回调只发给该玩家（测试用）；否则按事件目标分发。
     /// @param Logs 云脚本日志与故障信息的输出队列；队列满会使房间失败。
+    /// @param Stats 记录请求耗时、房间事件与宿主积压，可为空；慢请求另写一行日志到 Logs。
     static std::unique_ptr<Room> start(HostConfig Config, std::optional<std::size_t> Relay,
-                                       std::shared_ptr<LogChannel> Logs);
+                                       std::shared_ptr<LogChannel> Logs, std::shared_ptr<RunStats> Stats = nullptr);
 
     ~Room();
     Room(const Room &) = delete;

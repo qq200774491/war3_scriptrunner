@@ -193,9 +193,10 @@ struct Room::Impl {
         std::map<std::pair<std::size_t, std::string>, std::pair<Sha256Digest, std::uint64_t>> Cache;
     };
 
-    Impl(HostConfig Settings, std::optional<std::size_t> RelayTarget, std::shared_ptr<LogChannel> LogSink)
+    Impl(HostConfig Settings, std::optional<std::size_t> RelayTarget, std::shared_ptr<LogChannel> LogSink,
+         std::shared_ptr<RunStats> Recorder)
         : Settings(std::move(Settings)), Relay(RelayTarget), Logs(std::move(LogSink)),
-          Status(RoomStatus{}), Inbox(1024), Gateway(Status) {}
+          Stats(stats_or_private(std::move(Recorder))), Status(RoomStatus{}), Inbox(1024), Gateway(Status) {}
 
     ~Impl() { close(); }
 
@@ -208,6 +209,7 @@ struct Room::Impl {
     void run_receiver(const std::shared_ptr<Client> &Peer);
     void run_pump(const std::shared_ptr<Client> &Peer);
     void leave(const std::shared_ptr<Client> &Peer, const std::string &Reason);
+    Json answer(std::size_t Player, const Json &Message);
     std::size_t authenticate(const Json &Body) const;
     void route(Json Event, RoomStatus &Current);
     void send_to(std::size_t Player, Json Message);
@@ -216,6 +218,7 @@ struct Room::Impl {
     HostConfig Settings;
     std::optional<std::size_t> Relay;
     std::shared_ptr<LogChannel> Logs;
+    std::shared_ptr<RunStats> Stats;
     std::array<Profile, 2> Profiles;
     Socket Listener;
     Watch<RoomStatus> Status;
@@ -296,6 +299,28 @@ void Room::Impl::leave(const std::shared_ptr<Client> &Peer, const std::string &R
     }
 }
 
+/// 处理一条请求并计时；失败也回一条 error，不断开连接。慢请求的日志只尽力投递，队列满时丢弃。
+Json Room::Impl::answer(std::size_t Player, const Json &Message) {
+    const auto Began = std::chrono::steady_clock::now();
+    Json Response;
+    bool Failed = false;
+    try {
+        Response = Gateway.request(Player, Message);
+    } catch (const std::exception &Failure) {
+        Failed = true;
+        Response = Json{{"kind", "error"}, {"id", Message.contains("id") ? Message["id"] : Json(nullptr)},
+                        {"reason", Failure.what()}};
+    }
+    const auto Elapsed = std::chrono::steady_clock::now() - Began;
+    Stats->record_request(Player, Elapsed, Failed);
+    if (is_slow_request(Elapsed)) {
+        const auto Event = Message.find("event");
+        const std::string Name = Event != Message.end() && Event->is_string() ? Event->get<std::string>() : "?";
+        Logs->try_send(slow_request_line(Player, Name, Elapsed));
+    }
+    return Response;
+}
+
 void Room::Impl::run_receiver(const std::shared_ptr<Client> &Peer) {
     std::string Reason;
     try {
@@ -313,15 +338,8 @@ void Room::Impl::run_receiver(const std::shared_ptr<Client> &Peer) {
         const std::size_t Identity = Result.Player;
         Peer->Player.store(static_cast<std::int64_t>(Identity));
         while (true) {
-            Json Message = Reader.read_json(IdleTimeout);
-            const Json Id = Message.contains("id") ? Message["id"] : Json(nullptr);
-            Json Response;
-            try {
-                Response = Gateway.request(Identity, Message);
-            } catch (const std::exception &Failure) {
-                Response = Json{{"kind", "error"}, {"id", Id}, {"reason", Failure.what()}};
-            }
-            require(Peer->Box->send(std::move(Response)), "connection closed");
+            const Json Message = Reader.read_json(IdleTimeout);
+            require(Peer->Box->send(answer(Identity, Message)), "connection closed");
         }
     } catch (const std::future_error &) {
         Reason = "room closed";
@@ -393,6 +411,7 @@ void Room::Impl::route(Json Event, RoomStatus &Current) {
     require(Target == -1 || (Target >= 0 && Sessions.contains(static_cast<std::size_t>(Target))),
             "callback target not in connected room");
     ++Current.Delivery;
+    Stats->record_room_event();
     Event["room"] = Profiles[0].Room;
     Event["delivery"] = Current.Delivery;
     if (Relay) {
@@ -421,9 +440,9 @@ void Room::Impl::serve_events(RoomStatus &Current) {
             Status.send_replace(Current);
             Request.Answer.set_value(AuthAnswer{true, Player, {}});
             if (Sessions.size() == 2 && !Native) {
-                Native = std::make_unique<Host>(Settings, [this](HostEvent &&Event) {
-                    return Inbox.try_send(ServeEvent(std::move(Event)));
-                });
+                Native = std::make_unique<Host>(
+                    Settings, [this](HostEvent &&Event) { return Inbox.try_send(ServeEvent(std::move(Event))); },
+                    Stats);
                 Gateway.attach(Native->sender());
             }
         },
@@ -526,10 +545,10 @@ void Room::Impl::finish_clients(bool Failed) {
 Room::Room(std::unique_ptr<Impl> Prepared) : State(std::move(Prepared)) {}
 
 std::unique_ptr<Room> Room::start(HostConfig Config, std::optional<std::size_t> Relay,
-                                  std::shared_ptr<LogChannel> Logs) {
+                                  std::shared_ptr<LogChannel> Logs, std::shared_ptr<RunStats> Stats) {
     require(!Relay || *Relay < 2, "invalid relay");
     require(Logs != nullptr, "missing log channel");
-    auto Prepared = std::make_unique<Impl>(std::move(Config), Relay, std::move(Logs));
+    auto Prepared = std::make_unique<Impl>(std::move(Config), Relay, std::move(Logs), std::move(Stats));
     Prepared->Listener = Socket::listen_loopback();
     const std::uint16_t Port = Prepared->Listener.local_port();
     const std::string RoomId = new_uuid_v4();
