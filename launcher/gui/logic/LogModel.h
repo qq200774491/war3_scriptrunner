@@ -52,6 +52,9 @@ public:
     /// 同时满足范围与搜索词的行序号，升序。搜索词为空表示不限。
     std::vector<std::size_t> visible(const LogFilter &Filter) const;
 
+    /// 复制用的文本：筛选后可见的行按时间顺序，每行前面加来源（“[脚本] …”），行间用 CRLF。
+    std::string copy_text(const LogFilter &Filter) const;
+
 private:
     void push_line(std::string_view Line);
 

@@ -2,6 +2,8 @@
 
 #include "Text.h"
 
+#include <format>
+
 namespace scriptroom::gui {
 
 namespace {
@@ -76,6 +78,18 @@ std::vector<std::size_t> LogModel::visible(const LogFilter &Filter) const {
         if (Matches && in_entry_scope(Filter.Scope, Entry)) {
             Result.push_back(Index);
         }
+    }
+    return Result;
+}
+
+std::string LogModel::copy_text(const LogFilter &Filter) const {
+    std::string Result;
+    for (const std::size_t Index : visible(Filter)) {
+        const LogEntry &Entry = Entries[Index];
+        if (!Result.empty()) {
+            Result += "\r\n";
+        }
+        Result += std::format("[{}] {}", source_label(Entry.Source), Entry.Text);
     }
     return Result;
 }

@@ -116,4 +116,20 @@ const Registrar LogModelClear("gui.log.clear_bumps_revision", [] {
     check(Model.revision() != Before);
 });
 
+const Registrar LogCopyVisibleLines("gui.log.copy_visible_lines_with_source", [] {
+    LogModel Model;
+    LogFilter Filter;
+    check_equal(Model.copy_text(Filter), std::string()); // 没有日志时是空文本
+
+    Model.append("[系统] 启动\n[云脚本 0] alpha\nerror beta\n[云脚本 1] gamma");
+    check_equal(Model.copy_text(Filter),
+                std::string("[系统] [系统] 启动\r\n[脚本] [云脚本 0] alpha\r\n[错误] error beta\r\n[脚本] [云脚本 1] gamma"));
+
+    // 只复制筛选和搜索之后看得到的行，顺序不变。
+    Filter.Scope = LogScope::Cloud;
+    check_equal(Model.copy_text(Filter), std::string("[脚本] [云脚本 0] alpha\r\n[脚本] [云脚本 1] gamma"));
+    Filter.Query = "GAMMA";
+    check_equal(Model.copy_text(Filter), std::string("[脚本] [云脚本 1] gamma"));
+});
+
 } // namespace
