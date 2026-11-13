@@ -2,7 +2,9 @@
 
 #include "BuiNode.h"
 #include "EventRouter.h"
+#include "PillButton.h"
 #include "Styler.h"
+#include "Surface.h"
 
 #include <functional>
 #include <optional>
@@ -11,7 +13,6 @@
 
 namespace scriptroom::gui {
 
-/// 文字样式：颜色角色、相对字号（1.0 是 BUI 默认的 11pt）、粗细与对齐。
 struct TextStyle {
     ColorRole Color = &Palette::Text;
     double Scale = 1.0;
@@ -19,7 +20,6 @@ struct TextStyle {
     const char *Align = "left"; ///< left / center / right
 };
 
-inline constexpr double SmallText = 0.9;
 inline constexpr double TitleText = 1.15;
 
 /// 构建界面时用的小工具：创建常用控件，并把颜色与事件登记到 Styler / EventRouter。
@@ -33,17 +33,21 @@ public:
 
     Node frame(Node Parent, const Pack &Layout, std::optional<ColorRole> Background = std::nullopt, int Padding = 0) const;
 
-    /// 带 1 像素边框的卡片，底色由 Fill 指定；返回内层框架。
-    Node card(Node Parent, const Pack &Layout, int Padding, ColorRole Fill = &Palette::Panel) const;
-
-    /// 1 像素的分隔线。Vertical 为真时是竖线。
-    Node divider(Node Parent, const Pack &Layout, bool Vertical = false) const;
+    Node card(Node Parent, const Pack &Layout, int Padding, ColorRole Fill = &Palette::Card, int Radius = 8) const;
 
     Node label(Node Parent, const Pack &Layout, std::string_view Text, const TextStyle &Look = {}) const;
 
-    /// 图标名取自 Blender 图标集；Icon 为空表示没有图标。
-    Node button(Node Parent, const Pack &Layout, std::string_view Text, const char *Icon,
-                std::function<void()> OnClick) const;
+    Node icon_button(Node Parent, const Pack &Layout, const char *Icon, std::string_view Tooltip,
+                     std::function<void()> OnClick) const;
+
+    PillButton pill(Node Parent, const Pack &Layout, std::string_view Text, Tone Kind,
+                    std::function<void()> OnClick) const;
+
+    Surface *surface(Node Parent, const Pack &Layout, Surface::Painter Paint,
+                     std::function<void(const Surface::Pointer &)> OnClick = {}) const;
+
+    Surface *backdrop(Node Parent, Surface::Painter Paint,
+                      std::function<void(const Surface::Pointer &)> OnClick = {}) const;
 
     Node checkbox(Node Parent, const Pack &Layout, std::string_view Text, bool Checked,
                   std::function<void(bool)> OnChange) const;
@@ -53,6 +57,9 @@ public:
                     std::function<void(const std::string &)> OnChange) const;
 
 private:
+    Surface::ClickHandler routed(std::function<void(const Surface::Pointer &)> OnClick) const;
+    void repaint_on_theme(const Surface *Area) const;
+
     Styler &Style;
     EventRouter &Router;
 };
