@@ -18,7 +18,7 @@ inline constexpr int DefaultWindowHeight = 780;
 /// --capture：不打开窗口，渲染一帧写成 PNG 后退出（开发验收用）。
 struct CaptureRequest {
     fs::path Output;
-    ThemeKind Theme = ThemeKind::Shadowworks;
+    ThemeKind Theme = ThemeKind::Blue;
     Page Start = Page::Console;
     std::optional<fs::path> LogFile;
 };

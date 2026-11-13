@@ -24,7 +24,7 @@ using SessionTaskFactory = std::function<SessionTask(const Config &, SessionMode
 /// AppModel 运行所需的外部依赖。
 struct AppDependencies {
     fs::path Root;
-    ThemeKind Theme = ThemeKind::Shadowworks;
+    ThemeKind Theme = ThemeKind::Blue;
     SessionTaskFactory MakeTask;
     std::unique_ptr<GameBackend> Games;
     /// 后台线程用它唤醒界面线程；可从任意线程调用。
