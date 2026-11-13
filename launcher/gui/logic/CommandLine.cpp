@@ -30,7 +30,7 @@ ThemeKind capture_theme(const std::optional<std::string> &Name) {
 }
 
 Page capture_page(const std::optional<std::string> &Name) {
-    for (const Page Candidate : {Page::Settings, Page::Archives, Page::About}) {
+    for (const Page Candidate : {Page::Stats, Page::Settings, Page::Archives, Page::About}) {
         if (Name == page_key(Candidate)) {
             return Candidate;
         }
@@ -52,6 +52,7 @@ LaunchOptions parse_launch_options(const std::vector<std::string> &Tokens) {
         if (const auto Log = option_value(Tokens, "--capture-log")) {
             Request.LogFile = path_from_utf8(*Log);
         }
+        Request.SampleStats = std::find(Tokens.begin(), Tokens.end(), "--sample-stats") != Tokens.end();
         Options.Capture = std::move(Request);
         return Options;
     }

@@ -21,6 +21,7 @@ struct CaptureRequest {
     ThemeKind Theme = ThemeKind::Blue;
     Page Start = Page::Console;
     std::optional<fs::path> LogFile;
+    bool SampleStats = false; ///< --sample-stats：运行统计页用示例数据，便于截图
 };
 
 struct LaunchOptions {

@@ -181,6 +181,9 @@ int Application::run_window() {
 }
 
 int Application::run_capture(const CaptureRequest &Request) {
+    if (Request.SampleStats) {
+        Model.preview_stats(sample_stats_board());
+    }
     if (Request.LogFile) {
         try {
             Model.append_log(read_utf8_file(*Request.LogFile));

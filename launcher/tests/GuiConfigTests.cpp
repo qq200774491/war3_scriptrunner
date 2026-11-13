@@ -249,6 +249,9 @@ const Registrar CommandLineCapture("gui.command_line.capture", [] {
     check(parse_launch_options({"--capture"}).Capture == std::nullopt); // 缺值：与 Rust 版一样视为没有该选项
     check(parse_launch_options({"--capture", "m.png", "--theme", "slate"}).Capture->Theme == ThemeKind::Slate);
     check(parse_launch_options({"--capture", "m.png", "--page", "about"}).Capture->Start == Page::About);
+    check(parse_launch_options({"--capture", "m.png", "--page", "stats"}).Capture->Start == Page::Stats);
+    check(!parse_launch_options({"--capture", "m.png"}).Capture->SampleStats);
+    check(parse_launch_options({"--capture", "m.png", "--sample-stats"}).Capture->SampleStats);
     check(parse_launch_options({"--capture", "m.png", "--page", "settings"}).Capture->Start == Page::Settings);
     check(parse_launch_options({"--capture", "m.png", "--theme", "monochrome"}).Capture->Theme == ThemeKind::Slate);
 });
