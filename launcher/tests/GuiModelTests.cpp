@@ -260,9 +260,9 @@ const Registrar ModelConfigFiles("gui.model.save_load_config", [] {
 
 const Registrar ModelThemePersists("gui.model.theme_is_saved", [] {
     ModelFixture Test;
-    Test.Model->set_theme(ThemeKind::Light);
-    check(Test.Model->theme() == ThemeKind::Light);
-    check(load_theme(Test.Temp.path()) == ThemeKind::Light);
+    Test.Model->set_theme(ThemeKind::Amber);
+    check(Test.Model->theme() == ThemeKind::Amber);
+    check(load_theme(Test.Temp.path()) == ThemeKind::Amber);
 });
 
 bool has_line(const LogModel &Logs, std::string_view Text) {
