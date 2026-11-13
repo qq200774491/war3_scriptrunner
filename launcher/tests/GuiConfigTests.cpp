@@ -98,55 +98,76 @@ const Registrar DraftRejectsBadInput("gui.draft.rejects_bad_input", [] {
     check_equal(Trimmed.Map.filename(), fs::path("a.w3x"));
 });
 
-const Registrar ThemePalettesMatchRust("gui.theme.palettes", [] {
-    const Palette Blue = palette_of(ThemeKind::Shadowworks);
-    check(Blue.Canvas == Rgb{32, 32, 32});
-    check(Blue.Accent == Rgb{74, 139, 240});
-    check(Blue.Selected == Rgb{35, 57, 86});
-    check(Blue.Rail == Rgb{23, 64, 124});
-    check(Blue.OnAccent == Rgb{255, 255, 255});
+const Registrar ThemePalettesMatchDesign("gui.theme.palettes", [] {
+    const Palette Blue = palette_of(ThemeKind::Blue);
+    for (const ThemeKind Kind : AllThemes) {
+        const Palette Other = palette_of(Kind);
+        if (Other.Light) {
+            continue;
+        }
+        check(Other.Canvas == Rgb{0x20, 0x20, 0x20});
+        check(Other.Panel == Rgb{0x26, 0x26, 0x26});
+        check(Other.Card == Rgb{0x27, 0x27, 0x27});
+        check(Other.Text == Blue.Text);
+        check(Other.Edge == Blue.Edge);
+    }
+    check_equal(Blue.Accent.hex(), std::string("#0b3f96"));
+    check_equal(Blue.AccentSolid.hex(), std::string("#0143b1"));
+    check_equal(Blue.AccentBright.hex(), std::string("#1470e1"));
+    check_equal(Blue.AccentOn.hex(), std::string("#8fb6f0"));
+    check_equal(palette_of(ThemeKind::Teal).AccentSolid.hex(), std::string("#0e7a6c"));
+    check_equal(palette_of(ThemeKind::Violet).AccentSolid.hex(), std::string("#5138ac"));
+    check_equal(palette_of(ThemeKind::Amber).AccentSolid.hex(), std::string("#9c610b"));
+    check_equal(palette_of(ThemeKind::Slate).AccentSolid.hex(), std::string("#37495a"));
 
-    const Palette Mono = palette_of(ThemeKind::Monochrome);
-    check(Mono.Accent == Rgb{216, 216, 216});
-    check(Mono.Selected == Rgb{60, 60, 60});
-    check(Mono.Rail == Rgb{30, 30, 30});
-    check(Mono.OnAccent == Rgb{0, 0, 0});
+    check_equal(std::string(theme_label(ThemeKind::Blue)), std::string("蓝"));
+    check_equal(std::string(theme_label(ThemeKind::Amber)), std::string("琥珀"));
+    check_equal(std::string(theme_label(ThemeKind::Slate)), std::string("石板"));
+    check_equal(std::string(theme_label(ThemeKind::White)), std::string("白色"));
 
-    const Palette Light = palette_of(ThemeKind::Light);
-    check(Light.Canvas == Rgb{255, 255, 255});
-    check(Light.Panel == Rgb{246, 247, 249});
-    check(Light.Accent == Rgb{55, 112, 215});
-    check(Light.Text == Rgb{45, 50, 58});
-    check_equal(Light.Accent.hex(), std::string("#3770d7"));
-
-    check_equal(std::string(theme_label(ThemeKind::Shadowworks)), std::string("深灰蓝"));
-    check_equal(std::string(theme_label(ThemeKind::Monochrome)), std::string("黑白灰"));
-    check_equal(std::string(theme_label(ThemeKind::Light)), std::string("浅色"));
+    const Palette White = palette_of(ThemeKind::White);
+    check(White.Light);
+    check(!Blue.Light);
+    check(White.Panel == (Rgb{255, 255, 255}));
+    check(White.Text != Blue.Text);
+    check(theme_swatch(ThemeKind::White) == (Rgb{255, 255, 255}));
+    check(theme_swatch(ThemeKind::Teal) == palette_of(ThemeKind::Teal).AccentSolid);
     for (const ThemeKind Kind : AllThemes) {
         check(theme_from_key(theme_key(Kind)) == Kind);
     }
     check(!theme_from_key("pink").has_value());
 });
 
+const Registrar ThemeBlendMixesChannels("gui.theme.blend", [] {
+    check(blend(Rgb{0, 0, 0}, Rgb{255, 255, 255}, 0.0f) == (Rgb{0, 0, 0}));
+    check(blend(Rgb{0, 0, 0}, Rgb{255, 255, 255}, 1.0f) == (Rgb{255, 255, 255}));
+    check(blend(Rgb{0x20, 0x20, 0x20}, Rgb{0x40, 0x60, 0x80}, 0.5f) == (Rgb{0x30, 0x40, 0x50}));
+    check(blend(Rgb{10, 20, 30}, Rgb{200, 200, 200}, 3.0f) == (Rgb{200, 200, 200}));
+});
+
 const Registrar ThemeFileRoundTrip("gui.theme.settings_file", [] {
     const TempDirectory Temp;
-    check(load_theme(Temp.path()) == ThemeKind::Shadowworks); // 没有文件：默认主题
+    check(load_theme(Temp.path()) == ThemeKind::Blue);
 
     for (const ThemeKind Kind : AllThemes) {
         save_theme(Temp.path(), Kind);
         check(load_theme(Temp.path()) == Kind);
     }
-    // 文件格式与 Rust 版兼容：{"theme": "light"}。
-    save_theme(Temp.path(), ThemeKind::Light);
+    save_theme(Temp.path(), ThemeKind::Violet);
     const Json Body = parse_json(read_utf8_file(Temp.path() / L"界面设置.json"));
-    check_equal(Body.at("theme").get<std::string>(), std::string("light"));
+    check_equal(Body.at("theme").get<std::string>(), std::string("violet"));
 
     atomic_write(Temp.path() / L"界面设置.json", "{\"theme\": \"nonsense\"}");
-    check(load_theme(Temp.path()) == ThemeKind::Shadowworks);
+    check(load_theme(Temp.path()) == ThemeKind::Blue);
     atomic_write(Temp.path() / L"界面设置.json", "not json");
-    check(load_theme(Temp.path()) == ThemeKind::Shadowworks);
+    check(load_theme(Temp.path()) == ThemeKind::Blue);
+
     atomic_write(Temp.path() / L"界面设置.json", "{\"theme\": \"monochrome\"}");
-    check(load_theme(Temp.path()) == ThemeKind::Monochrome);
+    check(load_theme(Temp.path()) == ThemeKind::Slate);
+    atomic_write(Temp.path() / L"界面设置.json", "{\"theme\": \"shadowworks\"}");
+    check(load_theme(Temp.path()) == ThemeKind::Blue);
+    atomic_write(Temp.path() / L"界面设置.json", "{\"theme\": \"light\"}");
+    check(load_theme(Temp.path()) == ThemeKind::White);
 });
 
 const Registrar ThemeJsonForBui("gui.theme.bui_json", [] {
@@ -155,15 +176,18 @@ const Registrar ThemeJsonForBui("gui.theme.bui_json", [] {
         check_equal(File.at("themes").size(), std::size_t(1));
         const Json &Theme = File.at("themes").at(0);
         check_equal(Theme.at("name").get<std::string>(), bui_theme_name(Kind));
-        check_equal(Theme.at("mode").get<std::string>(), std::string(Kind == ThemeKind::Light ? "light" : "dark"));
+        check_equal(Theme.at("mode").get<std::string>(), std::string(Kind == ThemeKind::White ? "light" : "dark"));
         const Palette Colors = palette_of(Kind);
         const Json &Table = Theme.at("colors");
-        check_equal(Table.at("primary.background").get<std::string>(), Colors.Accent.hex());
+        check_equal(Table.at("primary.background").get<std::string>(), Colors.AccentSolid.hex());
         check_equal(Table.at("background").get<std::string>(), Colors.Canvas.hex());
+        check_equal(Table.at("text_field.border.selected").get<std::string>(), Colors.AccentBright.hex());
         check_equal(Table.at("checkbox.text.selected").get<std::string>(), Colors.Text.hex());
         check_equal(Table.at("button.gradient.enabled").get<bool>(), false);
+        check_equal(Table.at("button.roundness").get<double>(), 1.0);
+        check_equal(Table.at("button.border.width").get<double>(), 0.0);
     }
-    check(bui_theme_name(ThemeKind::Light) != bui_theme_name(ThemeKind::Monochrome));
+    check(bui_theme_name(ThemeKind::Blue) != bui_theme_name(ThemeKind::Slate));
 });
 
 const Registrar CommandLineDefaults("gui.command_line.defaults", [] {
@@ -177,11 +201,11 @@ const Registrar CommandLineDefaults("gui.command_line.defaults", [] {
 });
 
 const Registrar CommandLineCapture("gui.command_line.capture", [] {
-    const LaunchOptions Options = parse_launch_options({"--capture", "out.png", "--theme", "light", "--page", "archives",
+    const LaunchOptions Options = parse_launch_options({"--capture", "out.png", "--theme", "teal", "--page", "archives",
                                                         "--width", "900", "--height", "580", "--capture-log", "a.log"});
     check(Options.Capture.has_value());
     check_equal(Options.Capture->Output, fs::path("out.png"));
-    check(Options.Capture->Theme == ThemeKind::Light);
+    check(Options.Capture->Theme == ThemeKind::Teal);
     check(Options.Capture->Start == Page::Archives);
     check(Options.Capture->LogFile.has_value());
     check_equal(Options.Width, 900);
@@ -192,14 +216,17 @@ const Registrar CommandLineCapture("gui.command_line.capture", [] {
 
     const LaunchOptions Fallback = parse_launch_options(
         {"--capture", "x.png", "--theme", "neon", "--page", "nowhere", "--width", "abc", "--height", "-3"});
-    check(Fallback.Capture->Theme == ThemeKind::Shadowworks);
+    check(Fallback.Capture->Theme == ThemeKind::Blue);
     check(Fallback.Capture->Start == Page::Console);
     check_equal(Fallback.Width, DefaultWindowWidth);
     check_equal(Fallback.Height, DefaultWindowHeight);
 
-    check(parse_launch_options({"--theme", "light"}).Capture == std::nullopt);
+    check(parse_launch_options({"--theme", "teal"}).Capture == std::nullopt);
     check(parse_launch_options({"--capture"}).Capture == std::nullopt); // 缺值：与 Rust 版一样视为没有该选项
-    check(parse_launch_options({"--capture", "m.png", "--theme", "monochrome"}).Capture->Theme == ThemeKind::Monochrome);
+    check(parse_launch_options({"--capture", "m.png", "--theme", "slate"}).Capture->Theme == ThemeKind::Slate);
+    check(parse_launch_options({"--capture", "m.png", "--page", "about"}).Capture->Start == Page::About);
+    check(parse_launch_options({"--capture", "m.png", "--page", "settings"}).Capture->Start == Page::Settings);
+    check(parse_launch_options({"--capture", "m.png", "--theme", "monochrome"}).Capture->Theme == ThemeKind::Slate);
 });
 
 } // namespace
