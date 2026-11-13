@@ -3,7 +3,7 @@
 namespace scriptroom::gui {
 
 /// 主工作区的三个页面。
-enum class Page { Console, Settings, Archives };
+enum class Page { Console, Settings, Archives, About };
 
 /// 命令行 --page 与截图元数据使用的名字：console / settings / archives。
 inline const char *page_key(Page Target) {
@@ -12,6 +12,8 @@ inline const char *page_key(Page Target) {
         return "settings";
     case Page::Archives:
         return "archives";
+    case Page::About:
+        return "about";
     case Page::Console:
         break;
     }
