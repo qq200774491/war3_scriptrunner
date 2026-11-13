@@ -259,4 +259,65 @@ const Registrar CornerIgnoresShortBuffer("gui.corner.ignores_short_buffer", [] {
     check(Pixels == std::vector<std::uint32_t>(10, MaskFill), "缓冲区不够大时不应改动");
 });
 
+constexpr std::uint32_t OutlineColor = 0x3A3A3AU;
+constexpr std::array<Corner, 4> AllCorners = {Corner::TopLeft, Corner::TopRight, Corner::BottomLeft, Corner::BottomRight};
+
+std::vector<std::uint32_t> outlined_frame() {
+    std::vector<std::uint32_t> Pixels(MaskSize * MaskSize, MaskFill);
+    for (const Corner Which : AllCorners) {
+        fade_corner(Pixels, MaskSize, MaskSize, Which, MaskRadius, OutlineColor);
+    }
+    for (const Side Which : {Side::Top, Side::Bottom, Side::Left, Side::Right}) {
+        outline_edge(Pixels, MaskSize, MaskSize, Which, MaskRadius, OutlineColor);
+    }
+    return Pixels;
+}
+
+const Registrar OutlineEdgesAndCorners("gui.corner.outline_edges_and_corners", [] {
+    const std::vector<std::uint32_t> Pixels = outlined_frame();
+    const std::uint32_t Solid = 0xFF000000U | OutlineColor;
+    // 四条直边最外一圈是描边色，往里一格还是内容，内容没有被挤偏。
+    check_equal(at(Pixels, MaskSize / 2, 0), Solid);
+    check_equal(at(Pixels, MaskSize / 2, MaskSize - 1), Solid);
+    check_equal(at(Pixels, 0, MaskSize / 2), Solid);
+    check_equal(at(Pixels, MaskSize - 1, MaskSize / 2), Solid);
+    check_equal(at(Pixels, MaskSize / 2, 1), MaskFill);
+    check_equal(at(Pixels, 1, MaskSize / 2), MaskFill);
+    check_equal(at(Pixels, MaskSize / 2, MaskSize / 2), MaskFill);
+
+    // 圆角：角尖透明；圆弧和直边接上的那格几乎就是描边色；圆弧里面还是内容。
+    check_equal(at(Pixels, 0, 0), std::uint32_t(0));
+    const std::uint32_t Join = at(Pixels, MaskRadius - 1, 0);
+    check((Join >> 24) >= 240 && (Join >> 24) < 255, "接缝处几乎不透明");
+    for (int Shift = 0; Shift < 24; Shift += 8) {
+        const std::uint32_t Channel = (Join >> Shift) & 0xFFU;
+        check(Channel >= 0x34 && Channel <= 0x3A, "接缝处是描边色");
+    }
+    check_equal(at(Pixels, MaskRadius - 1, MaskRadius - 1), MaskFill);
+
+    // 四个角形状一样。
+    for (int Y = 0; Y < MaskRadius; ++Y) {
+        for (int X = 0; X < MaskRadius; ++X) {
+            const std::uint32_t TopLeft = at(Pixels, X, Y);
+            check_equal(at(Pixels, MaskSize - 1 - X, MaskSize - 1 - Y), TopLeft);
+            check_equal(at(Pixels, Y, X), TopLeft);
+        }
+    }
+
+    // 重复调用不变：处理过的像素都不再是完全不透明的。
+    std::vector<std::uint32_t> Again = Pixels;
+    for (const Corner Which : AllCorners) {
+        fade_corner(Again, MaskSize, MaskSize, Which, MaskRadius, OutlineColor);
+    }
+    outline_edge(Again, MaskSize, MaskSize, Side::Top, MaskRadius, OutlineColor);
+    check(Again == Pixels, "再画一遍描边不应改变像素");
+});
+
+const Registrar OutlineModeFollowsWindow("gui.corner.outline_mode", [] {
+    check(outline_mode(false, false) == OutlineMode::Drawn);
+    check(outline_mode(false, true) == OutlineMode::None);   // 最大化时不画
+    check(outline_mode(true, false) == OutlineMode::System); // Win11 交给 DWM，自己不画
+    check(outline_mode(true, true) == OutlineMode::System);
+});
+
 } // namespace
