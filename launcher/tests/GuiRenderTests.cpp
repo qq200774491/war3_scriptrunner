@@ -1,5 +1,6 @@
-// 图形界面的渲染辅助：截图用的 PNG 编码、自动折行。
+// 图形界面的渲染辅助：截图用的 PNG 编码、自动折行、窗口圆角。
 
+#include "CornerMask.h"
 #include "Png.h"
 #include "TestHarness.h"
 #include "TextWrap.h"
@@ -191,6 +192,71 @@ const Registrar WrapHandlesNewlinesAndTinyWidth("gui.wrap.newlines_and_narrow_wi
     check_equal(join(Narrow), std::string("abc"));
 
     check_equal(wrap_text("", 50.0f, fixed_width).size(), std::size_t(1)); // 空文本是一行空行
+});
+
+constexpr int MaskSize = 20;
+constexpr int MaskRadius = 8;
+constexpr std::uint32_t MaskFill = 0xFF4080C0U;
+
+std::vector<std::uint32_t> masked_frame() {
+    std::vector<std::uint32_t> Pixels(MaskSize * MaskSize, MaskFill);
+    for (const Corner Which : {Corner::TopLeft, Corner::TopRight, Corner::BottomLeft, Corner::BottomRight}) {
+        fade_corner(Pixels, MaskSize, MaskSize, Which, MaskRadius);
+    }
+    return Pixels;
+}
+
+std::uint32_t at(const std::vector<std::uint32_t> &Pixels, int X, int Y) {
+    return Pixels[static_cast<std::size_t>(Y) * MaskSize + static_cast<std::size_t>(X)];
+}
+
+const Registrar CornerFadesOutsideTheArc("gui.corner.fades_outside_the_arc", [] {
+    const std::vector<std::uint32_t> Pixels = masked_frame();
+    check_equal(at(Pixels, 0, 0), std::uint32_t(0));
+    check_equal(at(Pixels, MaskSize - 1, MaskSize - 1), std::uint32_t(0));
+    check_equal(at(Pixels, MaskSize / 2, MaskSize / 2), MaskFill);
+    check_equal(at(Pixels, MaskRadius, 0), MaskFill); // 圆弧以外的直边不动
+    check_equal(at(Pixels, 0, MaskRadius), MaskFill);
+
+    // 弧线上的像素半透明，且仍是预乘的：每个通道都不超过 alpha。
+    const std::uint32_t Edge = at(Pixels, 1, 3);
+    const std::uint32_t Alpha = Edge >> 24;
+    check(Alpha > 0 && Alpha < 255, "弧线上的像素应当半透明");
+    for (int Shift = 0; Shift < 24; Shift += 8) {
+        check(((Edge >> Shift) & 0xFFU) <= Alpha, "像素应当保持预乘");
+    }
+});
+
+const Registrar CornerIsSymmetric("gui.corner.same_shape_on_every_corner", [] {
+    const std::vector<std::uint32_t> Pixels = masked_frame();
+    for (int Y = 0; Y < MaskRadius; ++Y) {
+        for (int X = 0; X < MaskRadius; ++X) {
+            const std::uint32_t TopLeft = at(Pixels, X, Y);
+            check_equal(at(Pixels, MaskSize - 1 - X, Y), TopLeft);
+            check_equal(at(Pixels, X, MaskSize - 1 - Y), TopLeft);
+            check_equal(at(Pixels, MaskSize - 1 - X, MaskSize - 1 - Y), TopLeft);
+            check_equal(at(Pixels, Y, X), TopLeft);
+        }
+    }
+});
+
+const Registrar CornerFadesEachPixelOnce("gui.corner.repeated_calls_fade_once", [] {
+    std::vector<std::uint32_t> Pixels = masked_frame();
+    const std::vector<std::uint32_t> Once = Pixels;
+    fade_corner(Pixels, MaskSize, MaskSize, Corner::TopLeft, MaskRadius);
+    check(Pixels == Once, "已经淡过的像素不应再变");
+
+    // 只重画了一部分：新画的像素重新淡成同样的值，其余保持不变。
+    Pixels[1] = MaskFill;
+    Pixels[MaskSize * 3 + 1] = MaskFill;
+    fade_corner(Pixels, MaskSize, MaskSize, Corner::TopLeft, MaskRadius);
+    check(Pixels == Once, "重画的像素应当淡成和第一次一样");
+});
+
+const Registrar CornerIgnoresShortBuffer("gui.corner.ignores_short_buffer", [] {
+    std::vector<std::uint32_t> Pixels(10, MaskFill);
+    fade_corner(Pixels, MaskSize, MaskSize, Corner::TopLeft, MaskRadius);
+    check(Pixels == std::vector<std::uint32_t>(10, MaskFill), "缓冲区不够大时不应改动");
 });
 
 } // namespace
