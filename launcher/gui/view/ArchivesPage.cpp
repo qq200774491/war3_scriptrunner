@@ -1,5 +1,6 @@
 #include "ArchivesPage.h"
 
+#include "DisplayPath.h"
 #include "Geometry.h"
 #include "SystemDialogs.h"
 #include "Text.h"
@@ -57,8 +58,9 @@ void ArchivesPage::sync(const std::optional<Config> &Resolved) {
         Sections[Player].set_visible(Player < Resolved->Clients);
         const fs::path &Archives = Resolved->Archives;
         Players[Player].ClientIni.set_text(
-            path_to_utf8(Archives / L"clients" / std::format(L"player-{}.ini", Player)));
-        Players[Player].CloudArchive.set_text(path_to_utf8(Archives / std::format(L"slot-{}.archive", Player)));
+            display_path(path_to_utf8(Archives / L"clients" / std::format(L"player-{}.ini", Player))));
+        Players[Player].CloudArchive.set_text(
+            display_path(path_to_utf8(Archives / std::format(L"slot-{}.archive", Player))));
     }
 }
 

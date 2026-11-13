@@ -1,6 +1,7 @@
 #include "SettingsPage.h"
 
 #include "AccentPicker.h"
+#include "DisplayPath.h"
 #include "Geometry.h"
 #include "SystemDialogs.h"
 #include "Text.h"
@@ -83,8 +84,9 @@ void SettingsPage::build_path_row(Node Group, const PathRow &Spec) {
                    });
     PathFields[Index] = Ui.text_field(
         Row, {.Side = Edge::Left, .Fill = Stretch::X, .Expand = true, .Height = geometry::FieldHeight},
-        Model.draft().path(Spec.Field),
-        [&Model, Field = Spec.Field](const std::string &Text) { Model.draft().path(Field) = Text; });
+        display_path(Model.draft().path(Spec.Field)), [&Model, Field = Spec.Field](const std::string &Text) {
+            Model.draft().path(Field) = edited_path(Text, Model.draft().path(Field));
+        });
 }
 
 void SettingsPage::build_limits(Node Content) {
@@ -132,7 +134,7 @@ void SettingsPage::browse(PathField Field, const char *Title, bool Directory) {
     if (Chosen) {
         const std::string Text = path_to_utf8(*Chosen);
         Services.Model.draft().path(Field) = Text;
-        PathFields[static_cast<std::size_t>(Field)].str("value", Text);
+        PathFields[static_cast<std::size_t>(Field)].str("value", display_path(Text));
     }
 }
 
@@ -162,7 +164,7 @@ void SettingsPage::save_as_dialog() {
 void SettingsPage::push_draft_to_controls() {
     const ConfigDraft &Draft = Services.Model.draft();
     for (std::size_t Index = 0; Index < PathFieldCount; ++Index) {
-        PathFields[Index].str("value", Draft.Paths[Index]);
+        PathFields[Index].str("value", display_path(Draft.Paths[Index]));
     }
     SecondsField.str("value", Draft.Seconds);
     TimeoutField.str("value", Draft.Timeout);
@@ -175,7 +177,7 @@ void SettingsPage::sync() {
         push_draft_to_controls();
     }
     ThemeName.set_text(theme_label(Model.theme()));
-    ConfigPathLabel.set_text("配置文件  " + path_to_utf8(Model.config_path()));
+    ConfigPathLabel.set_text("配置文件  " + display_path(path_to_utf8(Model.config_path())));
     if (ShownClients != Model.draft().Clients) {
         ShownClients = Model.draft().Clients;
         ClientsPicker.refresh();

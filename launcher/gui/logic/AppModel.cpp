@@ -1,5 +1,7 @@
 #include "AppModel.h"
 
+#include "DisplayPath.h"
+
 #include "Error.h"
 #include "Text.h"
 
@@ -119,7 +121,7 @@ void AppModel::stop() {
 void AppModel::save_config() {
     try {
         Draft.to_config(ConfigPath).save(ConfigPath);
-        Notice = std::format("已保存 {}", path_to_utf8(ConfigPath));
+        Notice = std::format("已保存 {}", display_path(path_to_utf8(ConfigPath)));
     } catch (const std::exception &Failure) {
         Notice = Failure.what();
     }
