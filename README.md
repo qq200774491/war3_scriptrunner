@@ -1,141 +1,149 @@
-# ScriptRoom 共享云脚本房间
+# ScriptRoom
 
-用于在同一台 Windows 电脑上启动两个 Warcraft III 客户端，共用一个云脚本房间，并分别保存玩家的本地存档。提供图形界面和命令行入口。
+在一台电脑上开两个魔兽，连到本机的同一个云脚本房间，用来测必须两个玩家才跑得起来的云脚本逻辑。两个玩家的存档分开存。
 
-本仓库的默认分支 `scriptrunner` 使用原版 `scriptrunner.dll`；`main`、`v0.6` 分支保留 MLS 模拟器。
+默认分支 `scriptrunner` 用原版 `scriptrunner.dll`，MLS 模拟器那套在 `main` 和 `v0.6`。
 
-## 运行环境
+## 限制
 
-- Windows。
-- KKWE 插件目录及工具支持的 Warcraft III 1.27 游戏文件。
-- 已生成的 `.w3x` 地图、客户端 Lua 入口和云脚本目录。
-- 云脚本目录必须直接包含 `main.lua`。
+- 只支持同一台电脑上的两个玩家。没有跨机，也没有断线重连，一端掉线这场就结束，得重开。
+- 只支持魔兽 1.27。启动时会校验 `Game.dll` 的哈希，不对就不让启动。
+- 不打包地图，也不编译云脚本，这两样要先自己弄好。
+- 地图本身得有兼容的 MLS 接口和本地脚本入口，只改路径不保证能用。
 
-地图、云脚本、KKWE 和魔兽游戏资源需要自行准备。便携版须保留整个文件夹，不能只复制 EXE。
+## 需要什么
 
-## 准备程序
+- Windows
+- KKWE 目录（有 `bin` 和 `plugin/warcraft3`）
+- 1.27 的魔兽游戏文件
+- 生成好的 `.w3x` 地图、地图的客户端 Lua 入口、云脚本目录（`main.lua` 直接放在目录里）
 
-已有便携版时，直接打开程序所在目录，继续配置路径。
+## 使用
 
-从源码构建需要稳定版 Rust、CMake、Visual Studio 2022 C++ 工具链（含 Win32）：
+双击 `ScriptRoom.exe`。
+
+1. “路径与配置”里填好路径，保存。
+2. 点“检查”。缺文件、插件没启用、游戏版本不对都会在这里报出来。
+3. 上一轮的魔兽要先关掉，然后点“启动”。两个客户端会自己建房、加入、开局。
+4. 云脚本的输出在控制台里，能搜索，能按来源筛选，点一行在右边看全文。
+
+测完先在两个游戏里存档、退出，再点“停止”。反过来的话，没存的就丢了。
+
+“停止”只停云服务，游戏窗口不会关。“关闭全部魔兽”是请本机所有魔兽窗口正常退出，三秒后还没退的会问你要不要强制结束，强制结束会丢未保存的进度。
+
+命令行：
+
+```powershell
+.\ScriptRoomCLI.exe --check                                      # 只检查，不启动
+.\ScriptRoomCLI.exe                                              # 用默认配置启动
+.\ScriptRoomCLI.exe --config .\本地测试配置.json --seconds 7200    # 指定配置，跑两小时
+.\ScriptRoomCLI.exe --help                                       # 全部参数
+```
+
+`Ctrl+C` 停云服务，游戏窗口要自己关。TCP 6112 端口必须空闲，同一个游戏目录和存档目录不要同时跑两场。
+
+## 配置
+
+程序旁边的 `本地测试配置.json`，也可以在界面里改。第一次用就复制 `本地测试配置.example.json`。这个文件是本机路径，不进版本库。
+
+| 字段 | 内容 |
+|---|---|
+| `map` | 生成好的 `.w3x` |
+| `local_entry` | 地图客户端的本地 Lua 入口 |
+| `cloud_scripts` | 云脚本目录，`main.lua` 在这一层 |
+| `archives` | 这张地图专用的存档目录，如 `build/state/map` |
+| `editor` | KKWE 根目录 |
+| `source_game` | 原始魔兽目录，只用来复制文件 |
+| `game` | 两个客户端共用的测试目录，如 `build/warcraft-demo`，不能和 `source_game` 相同 |
+| `seconds` | 云服务最长运行秒数，默认 3600 |
+| `startup_timeout` | 等建房、加入、开局的超时秒数，默认 90 |
+
+路径用 `/` 比较省事，用 `\` 的话 JSON 里要写 `\\`。相对路径相对配置文件所在目录。换地图时另存一份配置，存档目录也换掉，别共用。
+
+每个字段更细的说明，还有存档的规则，见 [云脚本控制台与配置.md](云脚本控制台与配置.md)。
+
+## 存档和日志
+
+存档都在 `archives` 目录下：
+
+- `clients/player-0.ini`、`clients/player-1.ini`：两个玩家的客户端存档
+- `slot-0.archive`、`slot-1.archive`：两个玩家的云脚本存档
+- `global.sqlite3`：房间共享的数据
+
+玩家就是 0 号和 1 号两个固定槽位，不是平台账号，也不能导入线上存档。备份要先退出游戏和云服务，然后整个目录一起复制，只拷一个 ini 不够。
+
+日志在 `build/game`。启动失败先看控制台，再看 `launch-0.stderr.log`、`launch-1.stderr.log`；建房和加入的过程看 `quicktest-0.log`、`quicktest-1.log`。每轮结束还会写一份 `project-result-cpp.json` 作汇总。
+
+## 从源码构建
+
+要 CMake 3.24 以上、Visual Studio 2022（C++ 工具里 x64 和 Win32 都要装）、Git。构建界面时会从 GitHub 拉一份 BUI。
+
+魔兽和 `scriptrunner.dll` 都是 32 位的，所以脚本宿主和游戏插件要编成 32 位，启动器本身是 64 位，分两次编：
 
 ```powershell
 git clone --branch scriptrunner https://github.com/qq200774491/war3_mls.git
 cd war3_mls
-Copy-Item 本地测试配置.example.json 本地测试配置.json
+Copy-Item 本地测试配置.example.json 本地测试配置.json   # 再改成自己的路径
+
+# 32 位：脚本宿主、桥接库、游戏插件
+cmake -S . -B build -G "Visual Studio 17 2022" -A Win32
+cmake --build build --config Release
+
+# 64 位：启动器
+cmake -S launcher -B build/launcher -G "Visual Studio 17 2022" -A x64
+cmake --build build/launcher --config Release
 ```
 
-编辑 `本地测试配置.json`，填写本机实际路径，然后构建：
+不用另外打包，直接从构建目录运行就行。启动器会往上层目录找，找到同时有 `scriptrunner.dll` 和 `map/legacy_mls.lua` 的那一层当根目录。
+
+- 界面：`build\launcher\gui\Release\ScriptRoom.exe`
+- 命令行：`build\launcher\Release\ScriptRoomCLI.exe`
+
+要拿给别人用，需要把这些放进同一个目录，相对位置不变：`ScriptRoom.exe`、`ScriptRoomCLI.exe`、`scriptrunner.dll`、`map/`、`tools/` 下的 `launch_game.lua` 和 `game_control.lua`，以及 `build/Release` 里的 `script_host.exe`、`lua_probe.exe`、`shared_room_native.dll`、`zz_shared_quicktest.dll`。
+
+测试：
 
 ```powershell
-.\tools\package_rust.ps1
+.\build\launcher\tests\Release\scriptroom_tests.exe          # 全部
+.\build\launcher\tests\Release\scriptroom_tests.exe room.    # 名字里带 room. 的
 ```
 
-输出目录为 `build/package/ScriptRoom-Rust`，包含 `ScriptRoom.exe` 和 `ScriptRoomCLI.exe`。运行便携版无需安装 Rust、Python 或编译工具。
+房间相关的测试会加载原版 DLL，要先编完上面 32 位那一步。少数用例要用本机的 KKWE 或云脚本目录，没有的话会显示“跳过”，不算失败。
 
-### 在 VS Code 中打包并安装
+目录：
 
-准备好上面的构建工具和本机配置后，按 `Ctrl+Shift+B` 执行默认任务 **ScriptRoom: 生成安装包（Setup.exe）**，得到 `build/package/installer/ScriptRoom-Setup.exe`。双击该文件进入默认简体中文安装向导，可选择安装目录、创建开始菜单快捷方式，并在 Windows 设置中卸载。默认安装到当前用户的 `%LOCALAPPDATA%\Programs\ScriptRoom`，无需管理员权限。升级安装和卸载均保留已有配置与存档。首次安装提供示例配置，需要填写本机实际路径。
-
-首次生成安装包会下载并验证官方 Inno Setup 构建工具，以便携模式放在 `build/tools`；也可使用 `tools/package_installer.ps1 -Compiler <ISCC.exe 路径>` 指定已安装的编译器。安装包只包含正式程序资源，不包含本机地图、云脚本、存档和测试日志。
-
-**ScriptRoom: 打包并安装（当前用户）** 仍可在“终端 → 运行任务”中选择，用于在开发机上直接编译并安装。
-
-“终端 → 运行任务”中也可选择 **ScriptRoom: 打包便携版**，输出到上述发行目录。安装包生成和本机直接安装是两个独立任务。
-
-测试入口位于“终端 → 运行任务”：**ScriptRoom: 启动 GUI** 打开工作台；**ScriptRoom: 启动双端测试（GUI）** 打开工作台并自动启动当前配置的两个客户端；**ScriptRoom: 启动双端测试（CLI）** 在终端启动同一测试；**ScriptRoom: 检查测试配置** 只检查路径和运行组件。上述任务先执行便携版打包，确保使用当前代码。也可运行 VS Code 默认测试任务启动 GUI 双端测试。
-
-运行下一轮测试前，请先退出上一轮游戏并停止云服务，避免占用同一存档目录。
-
-也可以在 PowerShell 中安装到指定目录：
-
-```powershell
-.\tools\install_rust.ps1 -InstallDir 'D:\Apps\ScriptRoom'
-```
-
-更新前退出该安装目录中的 ScriptRoom 和云服务，再运行同一任务。已有配置、界面设置和存档会保留；配置中的地图、云脚本、游戏和存档路径继续指向原有位置，不会随安装迁移。安装脚本支持与打包脚本相同的 `-Config`、`-SkipNative` 和 `-SkipBuild` 参数，跳过构建仅适用于已有最新构建产物时。
-
-## 配置路径
-
-编辑程序旁的 `本地测试配置.json`，或在 GUI 的“路径与配置”中填写：
-
-| 字段 | 填写内容 |
+| 目录 | 内容 |
 |---|---|
-| `map` | 已生成的 `.w3x` 地图文件 |
-| `local_entry` | 地图客户端的本地 Lua 入口 |
-| `cloud_scripts` | 直接包含 `main.lua` 的云脚本目录 |
-| `archives` | 当前地图独立的存档目录，如 `build/state/map` |
-| `editor` | KKWE 根目录，包含 `bin` 和 `plugin/warcraft3` |
-| `source_game` | 原始魔兽游戏目录 |
-| `game` | 共用的测试游戏目录，如 `build/warcraft-demo`，不能与 `source_game` 相同 |
-| `seconds` | 本轮服务运行时长，单位秒，默认 3600 |
-| `startup_timeout` | 等待建房、加入和开局的超时秒数，默认 90 |
+| `launcher/core` | 房间服务、脚本宿主、存档、启动流程 |
+| `launcher/cli` | 命令行程序 |
+| `launcher/gui` | 图形界面 |
+| `launcher/tests` | 测试 |
+| `native` | 32 位部分：脚本宿主、桥接库、游戏插件 |
+| `map` | 客户端那边的 Lua |
+| `third_party` | Detours、SQLite、nlohmann/json |
 
-示例中的 `map` 是通用项目名，请替换为自己的实际路径。JSON 路径建议使用 `/`；相对路径以配置文件所在目录为基准。换地图时另存配置并选择独立存档目录。
+## 参与者
 
-工具使用已有地图，不负责打包地图或编译云脚本。地图需具备兼容的 MLS 接口与本地脚本入口，不能仅替换文件路径就适配所有地图。
+- 花吃了阿九
+- Carlos
+- 小为
+- xiaowei
 
-## 图形界面启动
 
-1. 双击 `ScriptRoom.exe`。
-2. 打开“路径与配置”，填写路径并保存配置。
-3. 点击“检查”，按提示处理路径、插件或游戏版本问题。
-4. 退出上一轮游戏，点击“启动”，等待两个客户端建房、加入并开局。
-5. 在控制台查看日志，可按来源筛选、搜索或查看单行详情。
+## 许可与用到的东西
 
-测试期间保持启动器运行。结束时先在游戏内保存并退出两个客户端，再停止云服务。任一客户端断开后，需要重新启动整场测试。
+界面用的 [BUI](https://github.com/ppmpreetham/BUI) 是 GPL，所以本项目整体也按 GPL 开源。
 
-“停止云服务”不会关闭游戏窗口。“关闭全部魔兽”会请求本机所有魔兽窗口退出；仍未退出时可确认强制结束，未保存进度会丢失。
+- [war3_quicktest](https://github.com/shuen4/war3_quicktest)：快速建房和加入的游戏适配，`native/quicktest/game_hooks.cpp` 改自它，保留 [MIT 许可](native/quicktest/LICENSE)，来历在[这里](native/quicktest/README.md)。
+- [Microsoft Detours](https://github.com/microsoft/Detours)：游戏适配层拦截函数用，仓库里放着 v4.0.1 源码和 [MIT 许可](third_party/detours/LICENSE.md)。
+- [BUI](https://github.com/ppmpreetham/BUI)：窗口、控件、主题，构建时按固定提交拉取。
+- [SQLite](https://sqlite.org/)：全局存档，源码在 `third_party/sqlite3`，公有领域。
+- [nlohmann/json](https://github.com/nlohmann/json)：读写配置和房间协议，[MIT 许可](third_party/nlohmann/LICENSE.MIT)。
+- [Serpent](https://github.com/dolag233/Serpent) 和本地项目 ShadowWorks：界面布局和深灰蓝配色的参考。
 
-## 命令行启动
+云脚本由 KKWE 环境里原版的 `scriptrunner.dll` 执行。第三方代码的版权和许可归各自作者，版本见 [third_party/README.md](third_party/README.md)。
 
-在便携版目录打开 PowerShell：
+## 其他文档
 
-```powershell
-# 检查配置，不启动游戏
-.\ScriptRoomCLI.exe --check
-
-# 使用默认配置启动
-.\ScriptRoomCLI.exe
-
-# 指定配置并运行两小时
-.\ScriptRoomCLI.exe --config .\本地测试配置.json --seconds 7200
-
-# 查看全部参数
-.\ScriptRoomCLI.exe --help
-```
-
-按 `Ctrl+C` 停止云服务，游戏窗口需自行退出。默认端口 TCP 6112 必须空闲；同一游戏目录和存档目录不要同时运行多场。
-
-## 日志与存档
-
-日志位于 `build/game`。启动失败时查看 GUI 控制台，以及 `launch-0.stderr.log`、`launch-1.stderr.log`、`quicktest-0.log`、`quicktest-1.log`。
-
-存档位于配置的 `archives` 目录：
-
-- `clients/player-0.ini`、`clients/player-1.ini`：两名玩家的客户端存档。
-- `slot-0.archive`、`slot-1.archive`：两名玩家的云脚本存档。
-- `global.sqlite3`：当前存档目录内的共享持久化数据。
-
-备份时先退出游戏和云服务，再复制整个存档目录。玩家身份按本地槽位区分，不是平台账号；本工具不导入线上存档，也不提供跨电脑共享房间或断线重连。
-
-## 参考项目与致谢
-
-感谢以下项目及其作者。本项目使用或参考的部分如下：
-
-| 项目 | 使用方式 | 本项目中的用途 |
-|---|---|---|
-| [war3_quicktest](https://github.com/shuen4/war3_quicktest) | 源码改编 | `quicktest/game_hooks.cpp` 基于其实现，沿用魔兽快速建房、加入及相关游戏适配逻辑。改编来源见 [quicktest 说明](quicktest/README.md)，保留 [MIT 许可证](quicktest/LICENSE)。 |
-| [Microsoft Detours](https://github.com/microsoft/Detours) | 源码依赖 | 用于游戏适配层的 Windows 函数拦截；随仓库包含 v4.0.1 源码与 [MIT 许可证](third_party/detours/LICENSE.md)。 |
-| [egui / eframe](https://github.com/emilk/egui) | GUI 框架 | Rust 桌面启动器的窗口、控件、布局与交互。 |
-| [Tabler Icons](https://github.com/tabler/tabler-icons) | 图标资源 | 使用 outline SVG 图标绘制导航、工具栏和操作按钮；保留 [MIT 许可证](rust/gui/assets/tabler/LICENSE)。 |
-| [Serpent](https://github.com/dolag233/Serpent) | 界面设计参考 | 参考左侧导航、紧凑工具栏、右侧详情栏及整体工作区布局。 |
-| ShadowWorks（本地项目） | 界面设计参考 | 参考深灰蓝配色、紧凑控件与信息层级。 |
-
-云脚本执行使用 KKWE 环境中的原版 `scriptrunner.dll`。第三方源码、资源和运行库的版权及许可分别归其原作者；各项依赖版本见 `Cargo.toml`、`Cargo.lock` 和 [构建依赖说明](third_party/README.md)。
-
-## 更多说明
-
-- [Rust 启动器使用说明](Rust启动器.md)：界面操作、命令行与构建选项。
-- [配置、控制台与存档](云脚本控制台与配置.md)：完整配置示例、Python 启动入口与存档维护。
-- [旧 Python 版使用说明](GUI与命令行启动.md)：旧版 GUI、CLI 与打包方法。
+- [启动器.md](启动器.md)：界面和命令行细节、退出码、代码布局
+- [云脚本控制台与配置.md](云脚本控制台与配置.md)：配置字段说明、控制台日志、存档规则
