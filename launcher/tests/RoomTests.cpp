@@ -140,6 +140,91 @@ struct TestRoom {
     }
 };
 
+/// 任意人数的房间：所有玩家连上后等 ready。
+struct CrowdRoom {
+    TempDirectory State;
+    std::shared_ptr<LogChannel> Logs = std::make_shared<LogChannel>(2048);
+    std::unique_ptr<Room> Active;
+    std::vector<std::unique_ptr<Client>> Players;
+    std::thread Drain;
+
+    explicit CrowdRoom(std::size_t Count) {
+        Drain = std::thread([this] {
+            while (Logs->recv()) {
+            }
+        });
+        HostConfig Config = host_config(root() / L"tests" / L"scripts" / L"counter", State.path());
+        Config.Players = Count;
+        Active = Room::start(Config, std::nullopt, Logs);
+        check_equal(Active->profiles().size(), Count);
+        for (const Profile &Identity : Active->profiles()) {
+            Players.push_back(std::make_unique<Client>(Identity));
+        }
+    }
+
+    ~CrowdRoom() {
+        Players.clear();
+        Active.reset();
+        Logs->close();
+        Drain.join();
+    }
+};
+
+const Registrar SinglePlayerRoom("room.single_player_starts_without_teammates", [] {
+    CrowdRoom Room(1);
+    const Json Ready = Room.Players[0]->expect("ready");
+    check_equal(Ready["players"], Json::array({0}));
+    check_equal(Room.Players[0]->exchange("solo", "increment", "4").first["payload"], "4");
+    check_equal(Room.Active->status().Connected, std::size_t(1));
+});
+
+const Registrar ThreePlayerRoom("room.three_players_wait_for_everyone", [] {
+    CrowdRoom Room(3);
+    for (const auto &Player : Room.Players) {
+        check_equal(Player->expect("ready")["players"], Json::array({0, 1, 2}));
+    }
+    check_equal(Room.Players[2]->exchange("a", "increment", "5").first["payload"], "5");
+    check_equal(Room.Players[1]->exchange("b", "increment", "2").first["payload"], "7");
+    Room.Players[2]->send(Json{{"id", "all"}, {"event", "broadcast"}, {"payload", "hi"}});
+    for (const auto &Player : Room.Players) {
+        check_equal(Player->expect("event")["payload"], "hi");
+    }
+    Room.Players[2]->expect("ack");
+
+    // 只认这一轮的玩家号：多出来的身份进不来。
+    Json Forged = Room.Active->profiles()[0].to_json();
+    Forged["player"] = 3;
+    Client Stranger(Socket::connect_loopback(Room.Active->profiles()[0].Port));
+    Stranger.send(Forged);
+    check(Stranger.expect("error")["reason"].get<std::string>().find("identity") != std::string::npos);
+});
+
+const Registrar RoomWaitsForLastPlayer("room.host_waits_until_all_players_join", [] {
+    TempDirectory State;
+    auto Logs = std::make_shared<LogChannel>(2048);
+    std::thread Drain([&] {
+        while (Logs->recv()) {
+        }
+    });
+    {
+        HostConfig Config = host_config(root() / L"tests" / L"scripts" / L"counter", State.path());
+        Config.Players = 3;
+        const std::unique_ptr<Room> Active = Room::start(Config, std::nullopt, Logs);
+        Client Zero(Active->profiles()[0]);
+        Client One(Active->profiles()[1]);
+        std::this_thread::sleep_for(300ms);
+        check(!Active->status().Active, "还差一名玩家时不该启动宿主");
+        check_equal(Active->status().Connected, std::size_t(2));
+        check_throws([&] {
+            HostConfig Wrong = Config;
+            Wrong.Players = 13;
+            Room::start(Wrong, std::nullopt, Logs);
+        }, "player count");
+    }
+    Logs->close();
+    Drain.join();
+});
+
 const Registrar RealDllSharedState("room.real_dll_shared_state_dedup_and_identity", [] {
     TestRoom Room(std::nullopt);
     auto [Reply, Ack] = Room.Zero->exchange("same", "increment", "7");

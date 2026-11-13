@@ -5,11 +5,11 @@
 #include "RunStats.h"
 #include "Sync.h"
 
-#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace scriptroom {
 
@@ -35,10 +35,10 @@ struct RoomStatus {
 
 using LogChannel = Channel<std::string>;
 
-/// 两名玩家共享的本地云脚本房间。
+/// 几名玩家共享的本地云脚本房间，人数取自 HostConfig::Players。
 ///
-/// 监听 127.0.0.1 的临时端口，用随机令牌认证固定身份的两名玩家；
-/// 两人到齐后启动脚本宿主。玩家断线或宿主故障会使房间失败，需新开房间。
+/// 监听 127.0.0.1 的临时端口，用随机令牌认证固定身份的玩家；
+/// 全部到齐后启动脚本宿主（只有一名玩家时他连上就启动）。玩家断线或宿主故障会使房间失败，需新开房间。
 class Room {
 public:
     /// 绑定端口、生成凭据并启动服务线程。
@@ -52,7 +52,8 @@ public:
     Room(const Room &) = delete;
     Room &operator=(const Room &) = delete;
 
-    const std::array<Profile, 2> &profiles() const;
+    /// 每名玩家一份，下标是玩家号。
+    const std::vector<Profile> &profiles() const;
 
     RoomStatus status() const;
 

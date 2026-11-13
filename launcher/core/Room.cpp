@@ -219,7 +219,7 @@ struct Room::Impl {
     std::optional<std::size_t> Relay;
     std::shared_ptr<LogChannel> Logs;
     std::shared_ptr<RunStats> Stats;
-    std::array<Profile, 2> Profiles;
+    std::vector<Profile> Profiles;
     Socket Listener;
     Watch<RoomStatus> Status;
     Channel<ServeEvent> Inbox;
@@ -374,7 +374,7 @@ void Room::Impl::run_pump(const std::shared_ptr<Client> &Peer) {
 std::size_t Room::Impl::authenticate(const Json &Body) const {
     const auto PlayerField = Body.find("player");
     require(PlayerField != Body.end() && PlayerField->is_number_unsigned() &&
-                PlayerField->get<std::uint64_t>() < 2,
+                PlayerField->get<std::uint64_t>() < Profiles.size(),
             "invalid player identity");
     const std::size_t Player = PlayerField->get<std::size_t>();
     const Profile &Expected = Profiles[Player];
@@ -439,7 +439,7 @@ void Room::Impl::serve_events(RoomStatus &Current) {
             Current.Connected = Sessions.size();
             Status.send_replace(Current);
             Request.Answer.set_value(AuthAnswer{true, Player, {}});
-            if (Sessions.size() == 2 && !Native) {
+            if (Sessions.size() == Profiles.size() && !Native) {
                 Native = std::make_unique<Host>(
                     Settings, [this](HostEvent &&Event) { return Inbox.try_send(ServeEvent(std::move(Event))); },
                     Stats);
@@ -456,7 +456,11 @@ void Room::Impl::serve_events(RoomStatus &Current) {
                            [&](HostReady &) {
                                Current.Active = true;
                                Status.send_replace(Current);
-                               notify_all(Json{{"kind", "ready"}, {"room", Profiles[0].Room}, {"players", {0, 1}}});
+                               Json Players = Json::array();
+                               for (const Profile &Entry : Profiles) {
+                                   Players.push_back(Entry.Player);
+                               }
+                               notify_all(Json{{"kind", "ready"}, {"room", Profiles[0].Room}, {"players", Players}});
                            },
                            [&](HostLog &Log) { require(Logs->try_send(std::move(Log.Line)), "log queue full"); },
                            [&](HostFailed &Failure) { throw Error(Failure.Reason); },
@@ -546,12 +550,14 @@ Room::Room(std::unique_ptr<Impl> Prepared) : State(std::move(Prepared)) {}
 
 std::unique_ptr<Room> Room::start(HostConfig Config, std::optional<std::size_t> Relay,
                                   std::shared_ptr<LogChannel> Logs, std::shared_ptr<RunStats> Stats) {
-    require(!Relay || *Relay < 2, "invalid relay");
+    require(Config.Players >= 1 && Config.Players <= 12, "invalid player count");
+    require(!Relay || *Relay < Config.Players, "invalid relay");
     require(Logs != nullptr, "missing log channel");
     auto Prepared = std::make_unique<Impl>(std::move(Config), Relay, std::move(Logs), std::move(Stats));
     Prepared->Listener = Socket::listen_loopback();
     const std::uint16_t Port = Prepared->Listener.local_port();
     const std::string RoomId = new_uuid_v4();
+    Prepared->Profiles.resize(Prepared->Settings.Players);
     for (std::size_t Player = 0; Player < Prepared->Profiles.size(); ++Player) {
         Profile &Entry = Prepared->Profiles[Player];
         Entry.Version = 1;
@@ -571,7 +577,7 @@ Room::~Room() {
     close();
 }
 
-const std::array<Profile, 2> &Room::profiles() const {
+const std::vector<Profile> &Room::profiles() const {
     return State->Profiles;
 }
 
