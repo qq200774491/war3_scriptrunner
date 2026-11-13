@@ -83,9 +83,11 @@ const Node &Node::set_value(double Value) const {
 }
 
 const Node &Node::text_color(Rgb Color, int Alpha) const {
-    const std::uint32_t Argb = (static_cast<std::uint32_t>(Alpha) << 24) | (static_cast<std::uint32_t>(Color.R) << 16) |
-                               (static_cast<std::uint32_t>(Color.G) << 8) | Color.B;
-    return num("text_color", static_cast<double>(Argb));
+    // 数值形式的 "text_color" 只作用于网页样式的输入框，标签与按钮要用颜色形式。
+    float Rgba[4];
+    to_rgba(Color, static_cast<float>(Alpha) / 255.0f, Rgba);
+    BK_set_color(Handle, "text_color", Rgba);
+    return *this;
 }
 
 const Node &Node::background(Rgb Color, float Alpha) const {
