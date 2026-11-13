@@ -1,15 +1,37 @@
 local json = require 'room_json'
+
+local MAX_PENDING = 128
+local MAX_MESSAGES_PER_POLL = 16
+local MAX_PLAYER_SLOT = 15
+
+---@class RoomClient
+---@field _profile RoomProfile
+---@field _native NativeRoom
+---@field _common table
+---@field _player integer
+---@field _status fun(kind: string, detail: any)
+---@field _relay_message fun(raw: string)
+---@field _state 'waiting'|'ready'|'closed'
+---@field _pending table[]
+---@field _connection NativeConnection|nil
 local M = {}
 M.__index = M
 
--- 只拥有本机连接与请求队列；不创建或销毁全端同步句柄。
+---@param profile RoomProfile
+---@param native NativeRoom
+---@param common table
+---@param callbacks {on_status: (fun(kind: string, detail: any))|nil, on_relay_message: fun(raw: string)}
+---@return RoomClient
 function M.new(profile, native, common, callbacks)
     return setmetatable({
-        _profile = profile, _native = native, _common = common,
+        _profile = profile,
+        _native = native,
+        _common = common,
         _player = common.GetPlayerId(common.GetLocalPlayer()),
         _status = callbacks.on_status or function() end,
         _relay_message = callbacks.on_relay_message,
-        _state = 'waiting', _pending = {},
+        _state = 'waiting',
+        _pending = {},
     }, M)
 end
 
@@ -18,57 +40,115 @@ function M:close()
     local connection = self._connection
     self._connection = nil
     self._pending = {}
-    if connection then connection:close() end
+    if connection then
+        connection:close()
+    end
 end
 
+---@param reason any
 function M:failure(reason)
-    if self._state == 'closed' then return end
+    if self._state == 'closed' then
+        return
+    end
     self:close()
     self._status('failed', tostring(reason))
     if self._player == self._profile.relay then
-        -- 固定控制消息避免队列溢出后再次拼接不可控异常文本。
-        pcall(self._relay_message, '{"kind":"room_failed","room":"' .. self._profile.room ..
-            '","reason":"relay transport failed"}')
+        local notice = '{"kind":"room_failed","room":"' .. self._profile.room
+            .. '","reason":"relay transport failed"}'
+        pcall(self._relay_message, notice)
     end
 end
 
+---@param player integer
+---@param request_id string
+---@param event string
+---@param payload string
 function M:send(player, request_id, event, payload)
-    if self._player ~= player then return end
-    if self._state == 'closed' then self._status('request_rejected', 'connection closed'); return end
-    if #self._pending >= 128 then self:failure('pending request queue full'); return end
+    if self._player ~= player then
+        return
+    end
+    if self._state == 'closed' then
+        self._status('request_rejected', 'connection closed')
+        return
+    end
+    if #self._pending >= MAX_PENDING then
+        self:failure('pending request queue full')
+        return
+    end
     self._pending[#self._pending + 1] = {request_id, event, payload}
 end
 
+---@return integer|nil
+function M:departed_player()
+    local common = self._common
+    for player = 0, MAX_PLAYER_SLOT do
+        if self._profile.players[player]
+            and common.GetPlayerSlotState(common.Player(player)) ~= common.PLAYER_SLOT_STATE_PLAYING
+        then
+            return player
+        end
+    end
+end
+
+---@return boolean connected
+function M:ensure_connection()
+    if self._connection then
+        return true
+    end
+    local player = self._profile.players[self._player]
+    if not player then
+        self:close()
+        return false
+    end
+    self._connection = self._native.open(player.port)
+    self._connection:join(self._profile.room, self._player, player.token)
+    return true
+end
+
+---@param raw string
+function M:handle_message(raw)
+    ---@type RoomMessage
+    local message = json.decode(raw)
+    if message.kind == 'ready' then
+        self._state = 'ready'
+    elseif message.kind == 'room_failed' then
+        self._state = 'waiting'
+    end
+    self._status(message.kind, message)
+    local relayed = message.kind == 'event' or message.kind == 'ready' or message.kind == 'room_failed'
+    if self._player == self._profile.relay and relayed then
+        self._relay_message(raw)
+    end
+end
+
+function M:flush_pending()
+    for _, request in ipairs(self._pending) do
+        self._connection:send(table.unpack(request))
+    end
+    self._pending = {}
+end
+
 function M:poll()
-    if self._state == 'closed' then return end
-    for player = 0, 15 do
-        if self._profile.players[player] and
-            self._common.GetPlayerSlotState(self._common.Player(player)) ~= self._common.PLAYER_SLOT_STATE_PLAYING then
-            self:failure('game player ' .. player .. ' left; restart requires a new room')
-            return
-        end
+    if self._state == 'closed' then
+        return
     end
-    if not self._connection then
-        local player = self._profile.players[self._player]
-        if not player then self:close(); return end
-        self._connection = self._native.open(player.port)
-        self._connection:join(self._profile.room, self._player, player.token)
+    local departed = self:departed_player()
+    if departed then
+        self:failure('game player ' .. departed .. ' left; restart requires a new room')
+        return
     end
-    for _ = 1, 16 do
+    if not self:ensure_connection() then
+        return
+    end
+    for _ = 1, MAX_MESSAGES_PER_POLL do
         local raw = self._connection:poll()
-        if not raw then break end
-        local message = json.decode(raw)
-        if message.kind == 'ready' then self._state = 'ready' end
-        if message.kind == 'room_failed' then self._state = 'waiting' end
-        self._status(message.kind, message)
-        if self._player == self._profile.relay and
-            (message.kind == 'event' or message.kind == 'ready' or message.kind == 'room_failed') then
-            self._relay_message(raw)
+        if not raw then
+            break
         end
+        self:handle_message(raw)
     end
     if self._state == 'ready' then
-        for _, request in ipairs(self._pending) do self._connection:send(table.unpack(request)) end
-        self._pending = {}
+        self:flush_pending()
     end
 end
 
