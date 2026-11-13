@@ -11,11 +11,10 @@ namespace scriptroom::gui {
 
 namespace fs = std::filesystem;
 
-/// 三套配色，名称与 Rust 版一致；Shadowworks 为默认。
-enum class ThemeKind { Shadowworks, Monochrome, Light };
+enum class ThemeKind { Blue, Teal, Violet, Amber, Slate, White };
 
-inline constexpr std::array<ThemeKind, 3> AllThemes = {ThemeKind::Shadowworks, ThemeKind::Monochrome,
-                                                       ThemeKind::Light};
+inline constexpr std::array<ThemeKind, 6> AllThemes = {ThemeKind::Blue,  ThemeKind::Teal,  ThemeKind::Violet,
+                                                       ThemeKind::Amber, ThemeKind::Slate, ThemeKind::White};
 
 struct Rgb {
     std::uint8_t R = 0;
@@ -28,37 +27,54 @@ struct Rgb {
     std::string hex() const;
 };
 
-/// 界面使用的全部颜色。数值取自 Rust 版 theme.rs，另含 BUI 版需要的派生色。
+Rgb blend(Rgb Base, Rgb Over, float Alpha);
+
 struct Palette {
     Rgb Canvas;
     Rgb Panel;
-    Rgb Raised;
-    Rgb Border;
-    Rgb Divider;
+    Rgb Card;
+    Rgb Edge;
+    Rgb Popup;
     Rgb Text;
-    Rgb Muted;
+    Rgb Text2;
+    Rgb Text3;
+    Rgb Text4;
+    Rgb Icon;
+    Rgb Danger;
+    Rgb Success;
+
     Rgb Accent;
-    Rgb Selected;
-    Rgb Rail;
-    Rgb OnAccent;     ///< 主操作按钮上的文字：黑白灰主题用黑字，其余用白字
-    Rgb RailIcon;     ///< 左侧图标栏的图标色
-    Rgb RailSelected; ///< 图标栏当前页的底色
-    Rgb Danger;       ///< 日志来源列中的“错误”
+    Rgb AccentDeep;
+    Rgb AccentSolid;
+    Rgb AccentHover;
+    Rgb AccentPressed;
+    Rgb AccentBright;
+    Rgb AccentOn;
+
+    Rgb ControlHover;
+    Rgb ControlPressed;
+    Rgb EdgeHover;
+    Rgb Overlay; ///< 半透明悬停层的颜色：深色主题叠白，白色主题叠黑
+    Rgb FieldEditing;
+    Rgb CheckFill;
+    Rgb CheckEdge;
+    float TileAlpha = 0.18f;
+    bool Light = false;
 };
 
 Palette palette_of(ThemeKind Kind);
 
-/// 主题下拉框中的显示名：深灰蓝 / 黑白灰 / 浅色。
+Rgb theme_swatch(ThemeKind Kind);
+
 const char *theme_label(ThemeKind Kind);
 
-/// 界面设置.json 中的取值：shadowworks / monochrome / light。
 const char *theme_key(ThemeKind Kind);
+
 std::optional<ThemeKind> theme_from_key(std::string_view Key);
 
 /// BUI 里注册该主题时使用的名称。
 std::string bui_theme_name(ThemeKind Kind);
 
-/// 生成 BUI 主题文件（JSON 文本）：浅色基于 "light"，其余基于 "dark"。
 std::string bui_theme_json(ThemeKind Kind);
 
 /// 读取 Root/界面设置.json；缺失或内容无效时返回默认主题。
