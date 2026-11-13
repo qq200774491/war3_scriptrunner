@@ -30,10 +30,12 @@ ThemeKind capture_theme(const std::optional<std::string> &Name) {
 }
 
 Page capture_page(const std::optional<std::string> &Name) {
-    if (Name == "settings") {
-        return Page::Settings;
+    for (const Page Candidate : {Page::Settings, Page::Archives, Page::About}) {
+        if (Name == page_key(Candidate)) {
+            return Candidate;
+        }
     }
-    return Name == "archives" ? Page::Archives : Page::Console;
+    return Page::Console;
 }
 
 } // namespace
