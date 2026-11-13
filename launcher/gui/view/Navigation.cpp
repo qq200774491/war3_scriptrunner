@@ -1,6 +1,6 @@
 #include "Navigation.h"
 
-#include "Text.h"
+#include "Geometry.h"
 
 namespace scriptroom::gui {
 
@@ -10,100 +10,77 @@ struct RailItem {
     Page Target;
     const char *Icon;
     const char *Tooltip;
+    Edge Side;
 };
 
-constexpr std::array<RailItem, 3> RailItems = {{
-    {Page::Console, "CONSOLE", "云脚本控制台"},
-    {Page::Settings, "PREFERENCES", "配置"},
-    {Page::Archives, "PACKAGE", "玩家存档"},
+// 底组按加入顺序从下往上排：设置在最下面，关于在它上面。
+constexpr std::array<RailItem, 4> RailItems = {{
+    {Page::Console, "CONSOLE", "云脚本控制台", Edge::Top},
+    {Page::Archives, "PACKAGE", "玩家存档", Edge::Top},
+    {Page::Settings, "PREFERENCES", "设置", Edge::Bottom},
+    {Page::About, "INFO", "关于", Edge::Bottom},
 }};
 
-constexpr std::array<LogScope, 3> Scopes = {LogScope::All, LogScope::Cloud, LogScope::Errors};
-
-struct ProjectItem {
-    Page Target;
+struct ScopeItem {
+    LogScope Scope;
     const char *Icon;
-    const char *Text;
+    Rgb Tint;
 };
 
-constexpr std::array<ProjectItem, 2> ProjectItems = {{
-    {Page::Settings, "PREFERENCES", "路径与配置"},
-    {Page::Archives, "PACKAGE", "玩家存档"},
+constexpr std::array<ScopeItem, 3> ScopeItems = {{
+    {LogScope::All, "ALIGN_JUSTIFY", {0x5B, 0x9B, 0xF5}},
+    {LogScope::Cloud, "SCRIPT", {0x2F, 0xD0, 0xB5}},
+    {LogScope::Errors, "ERROR", {0xF8, 0x71, 0x71}},
 }};
-
-void section_title(const Builder &Ui, Node Parent, std::string_view Text) {
-    Ui.label(Parent, {.Fill = Stretch::X, .PadTop = 18, .PadBottom = 5}, Text,
-             {.Color = &Palette::Muted, .Scale = SmallText});
-}
 
 } // namespace
 
 RailBar::RailBar(const ViewServices &Context, Node Parent) : Services(Context) {
     const Builder &Ui = Services.Ui;
     AppModel &Model = Services.Model;
-    const Node Rail = Ui.frame(Parent, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = 48}, &Palette::Rail, 7);
+    const Node Rail = Ui.frame(Parent, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = geometry::RailWidth},
+                               &Palette::Accent);
     for (std::size_t Index = 0; Index < RailItems.size(); ++Index) {
         const RailItem &Item = RailItems[Index];
-        NavRow::Look Appearance;
-        Appearance.Icon = Item.Icon;
-        Appearance.Tooltip = Item.Tooltip;
-        Appearance.IconColor = &Palette::RailIcon;
-        Appearance.SelectedFill = &Palette::RailSelected;
-        Appearance.HoverFill = &Palette::RailSelected;
-        Appearance.Height = 36;
-        Rows[Index] = std::make_unique<NavRow>(Ui, Rail, Pack{.Fill = Stretch::X, .PadTop = 7}, Appearance,
-                                               [&Model, Target = Item.Target] { Model.show_page(Target); });
+        const Pack Slot = Item.Side == Edge::Top ? Pack{.Side = Edge::Top, .PadTop = 18}
+                                                 : Pack{.Side = Edge::Bottom, .PadBottom = 17};
+        Keys[Index] = std::make_unique<RailKey>(Ui, Rail, Slot, Item.Icon, Item.Tooltip,
+                                                [&Model, Target = Item.Target] { Model.show_page(Target); });
     }
 }
 
 void RailBar::sync() {
     for (std::size_t Index = 0; Index < RailItems.size(); ++Index) {
-        Rows[Index]->set_selected(Services.Model.page() == RailItems[Index].Target);
+        Keys[Index]->set_selected(Services.Model.page() == RailItems[Index].Target);
     }
 }
 
 NavigationPanel::NavigationPanel(const ViewServices &Context, Node Parent) : Services(Context) {
     const Builder &Ui = Services.Ui;
     AppModel &Model = Services.Model;
-    const Node Panel = Ui.frame(Parent, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = 164}, &Palette::Panel, 12);
+    const Node Panel = Ui.frame(Parent, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = geometry::SideWidth});
 
-    Ui.label(Panel, {.Side = Edge::Bottom, .Fill = Stretch::X}, "本地工作区", {.Color = &Palette::Muted, .Scale = SmallText});
-    Ui.label(Panel, {.Fill = Stretch::X, .PadTop = 2}, "工作区", {.Scale = SmallText, .Bold = true});
+    const Node Head = Ui.frame(Panel, {.Side = Edge::Top, .Fill = Stretch::X, .Height = geometry::ToolbarHeight});
+    const Node Body = Ui.frame(Panel, {.Fill = Stretch::Both, .Expand = true}, std::nullopt, 12);
+    Actions = std::make_unique<ActionBar>(Services, Head, Body);
 
-    section_title(Ui, Panel, "控制台");
-    for (std::size_t Index = 0; Index < Scopes.size(); ++Index) {
-        NavRow::Look Appearance;
-        Appearance.Text = scope_label(Scopes[Index]);
-        ScopeRows[Index] = std::make_unique<NavRow>(Ui, Panel, Pack{.Fill = Stretch::X}, Appearance,
-                                                    [&Model, Scope = Scopes[Index]] { Model.show_scope(Scope); });
+    const Node Scopes = Ui.frame(Body, {.Fill = Stretch::X, .PadTop = 22});
+    for (std::size_t Index = 0; Index < ScopeItems.size(); ++Index) {
+        const ScopeItem &Item = ScopeItems[Index];
+        NavRow::Look Appearance{.Icon = Item.Icon, .Text = scope_label(Item.Scope), .Tint = Item.Tint};
+        ScopeRows[Index] = std::make_unique<NavRow>(Ui, Scopes, Pack{.Fill = Stretch::X, .PadBottom = 2}, Appearance,
+                                                    [&Model, Scope = Item.Scope] { Model.show_scope(Scope); });
     }
-
-    section_title(Ui, Panel, "项目");
-    for (std::size_t Index = 0; Index < ProjectItems.size(); ++Index) {
-        NavRow::Look Appearance;
-        Appearance.Icon = ProjectItems[Index].Icon;
-        Appearance.Text = ProjectItems[Index].Text;
-        PageRows[Index] = std::make_unique<NavRow>(Ui, Panel, Pack{.Fill = Stretch::X}, Appearance,
-                                                   [&Model, Target = ProjectItems[Index].Target] { Model.show_page(Target); });
-    }
-
-    section_title(Ui, Panel, "当前配置");
-    const Node ConfigIcon = Ui.frame(Panel, {.Fill = Stretch::X});
-    Ui.label(ConfigIcon, {.Side = Edge::Left}, "", {.Color = &Palette::Muted}).str("icon", "FILE_TEXT");
-    Panel.add(ConfigName.node(), {.Fill = Stretch::X, .PadLeft = 4});
-    Ui.style().watch([this](const Palette &Colors) { ConfigName.set_color(Colors.Muted); });
 }
 
 void NavigationPanel::sync() {
     const AppModel &Model = Services.Model;
-    for (std::size_t Index = 0; Index < Scopes.size(); ++Index) {
-        ScopeRows[Index]->set_selected(Model.page() == Page::Console && Model.filter().Scope == Scopes[Index]);
-        ScopeRows[Index]->set_detail(std::to_string(Model.logs().count(Scopes[Index])));
+    Actions->sync();
+    for (std::size_t Index = 0; Index < ScopeItems.size(); ++Index) {
+        const LogScope Scope = ScopeItems[Index].Scope;
+        ScopeRows[Index]->set_selected(Model.page() == Page::Console && Model.filter().Scope == Scope);
+        ScopeRows[Index]->set_count(std::to_string(Model.logs().count(Scope)));
     }
-    for (std::size_t Index = 0; Index < ProjectItems.size(); ++Index) {
-        PageRows[Index]->set_selected(Model.page() == ProjectItems[Index].Target);
-    }
-    ConfigName.set_text(path_to_utf8(Model.config_path().filename()));
 }
 
 } // namespace scriptroom::gui
