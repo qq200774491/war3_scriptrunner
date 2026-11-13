@@ -29,7 +29,7 @@ public:
 private:
     const ViewServices &Services;
     std::unique_ptr<ActionBar> Actions;
-    std::array<std::unique_ptr<NavRow>, 3> ScopeRows;
+    std::array<std::unique_ptr<NavRow>, 4> ScopeRows;
 };
 
 } // namespace scriptroom::gui

@@ -32,6 +32,7 @@ constexpr std::array<ScopeItem, 3> ScopeItems = {{
     {LogScope::Cloud, "SCRIPT", {0x2F, 0xD0, 0xB5}},
     {LogScope::Errors, "ERROR", {0xF8, 0x71, 0x71}},
 }};
+    {LogScope::Slow, "TIME", {0xF5, 0xA5, 0x24}},
 
 } // namespace
 

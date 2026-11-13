@@ -295,6 +295,7 @@ void LogView::draw_header(BuiRaster *Target, const Metrics &Layout) {
 Rgb LogView::source_color(LogSource Source) const {
     switch (Source) {
     case LogSource::Error:
+    case LogSource::Slow:
         return Colors.Danger;
     case LogSource::Script:
         return Colors.AccentOn;
