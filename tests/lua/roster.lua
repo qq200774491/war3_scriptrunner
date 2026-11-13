@@ -1,3 +1,4 @@
+local errors = require 'room_errors'
 local adapter = require 'shared_room'
 for local_player = 0, 1 do
     for _, before_connection in ipairs({true, false}) do
@@ -43,7 +44,7 @@ for local_player = 0, 1 do
         tick()
         tick()
         assert(#statuses == 1 and statuses[1][1] == 'failed')
-        assert(statuses[1][2]:find('game player 1 left', 1, true))
+        assert(statuses[1][2] == errors.text('client_player_left', 1))
         assert(opened == (before_connection and 0 or 1))
         assert(closed == (before_connection and 0 or 1))
         assert(local_player == 0 and #packets > 0 or local_player == 1 and #packets == 0)

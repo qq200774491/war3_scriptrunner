@@ -1,3 +1,4 @@
+local errors = require 'room_errors'
 local json = require 'room_json'
 local transport = require 'room_transport'
 local value = json.decode('{"text":"中文\\n\\uD83D\\uDE00","arr":[true,false,null,1.25e2]}')
@@ -27,11 +28,11 @@ assert(not pcall(writer.enqueue, writer, ('x'):rep(16385)))
 local failure
 local broken = transport.new('test-room', 0, error, function(reason) failure = reason end)
 broken:receive(0, packets[2])
-assert(failure == 'sync sequence gap')
+assert(failure == errors.text('transport_sequence_gap'))
 local conflict = transport.new('test-room', 0, error, function(reason) failure = reason end)
 conflict:receive(0, packets[1])
 conflict:receive(0, (packets[1]:gsub('%x%x$', 'ff')))
-assert(failure == 'conflicting sync fragment')
+assert(failure == errors.text('transport_fragment_conflict'))
 -- map已有同步消息上限为 800，350 字节原文加十六进制与头部须保持在该限制以内。
 local fast_packets, fast_received = {}, {}
 local fast = transport.new('12345678-1234-1234-1234-123456789012', 0, function() end, error, 350)

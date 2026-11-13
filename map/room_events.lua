@@ -1,4 +1,5 @@
 local json = require 'room_json'
+local errors = require 'room_errors'
 
 ---@class RoomEvents
 ---@field _profile RoomProfile
@@ -11,31 +12,37 @@ M.__index = M
 ---@param callbacks RoomCallbacks
 ---@return RoomEvents
 function M.new(profile, callbacks)
-    return setmetatable({
+    local o = {
         _profile = profile,
         _callbacks = callbacks,
         _delivery = 0,
-    }, M)
+    }
+    setmetatable(o, M)
+    return o
 end
 
 local function unhex(text)
-    return (text:gsub('%x%x', function(pair)
-        return string.char(tonumber(pair, 16))
-    end))
+    return (text:gsub(
+        '%x%x',
+        function(pair)
+            return string.char(tonumber(pair, 16))
+        end
+    ))
 end
 
 ---@param message RoomMessage
 ---@return string payload
 local function event_payload(message)
-    local event, payload = message.event, message.payload
+    local event = message.event
+    local payload = message.payload
     if type(event) ~= 'string' or type(payload) ~= 'string' then
-        error('invalid cloud event', 0)
+        return errors.fail('event_malformed')
     end
     if not message.payload_encoding then
         return payload
     end
     if message.payload_encoding ~= 'hex' or #payload % 2 ~= 0 or payload:find('[^%x]') then
-        error('invalid binary cloud payload', 0)
+        errors.fail('event_bad_payload')
     end
     return unhex(payload)
 end
@@ -46,7 +53,7 @@ end
 function M:receive(raw)
     local message = json.decode(raw)
     if message.room ~= self._profile.room then
-        error('wrong synchronized room', 0)
+        errors.fail('event_wrong_room')
     end
     if message.kind == 'ready' then
         if self._callbacks.on_ready then
@@ -58,13 +65,13 @@ function M:receive(raw)
         return false, message.reason
     end
     if message.kind ~= 'event' then
-        error('unknown synchronized message', 0)
+        errors.fail('event_unknown_kind')
     end
     if message.delivery ~= self._delivery + 1 then
-        error('cloud delivery gap', 0)
+        errors.fail('event_delivery_gap')
     end
     if message.player ~= -1 and not self._profile.players[message.player] then
-        error('invalid cloud target', 0)
+        errors.fail('event_bad_target')
     end
     local payload = event_payload(message)
     self._delivery = message.delivery

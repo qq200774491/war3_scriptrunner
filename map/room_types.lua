@@ -29,6 +29,10 @@
 ---@field on_failure fun(reason: string|nil)|nil
 ---@field on_local_status fun(kind: string, detail: any)|nil
 
+---@class ClientCallbacks
+---@field on_status fun(kind: string, detail: any)|nil
+---@field on_relay_message fun(raw: string)
+
 ---@class RoomHandle
 ---@field send fun(player: integer, request_id: string, event: string, payload: string)
 ---@field close fun()

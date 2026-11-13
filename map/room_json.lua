@@ -1,3 +1,5 @@
+local errors = require 'room_errors'
+
 local M = {null = {}}
 
 local MAX_SOURCE_BYTES = 262144
@@ -29,7 +31,9 @@ Parser.__index = Parser
 ---@param source string
 ---@return JsonParser
 local function new_parser(source)
-    return setmetatable({source = source, at = 1}, Parser)
+    local o = {source = source, at = 1}
+    setmetatable(o, Parser)
+    return o
 end
 
 function Parser:peek()
@@ -61,14 +65,14 @@ function Parser:finish_member(closing)
         return true
     end
     if char ~= ',' then
-        error('comma expected', 0)
+        errors.fail('json_comma')
     end
     self:skip_blank()
     return false
 end
 
 function Parser:read_hex4()
-    local digits = self.source:match('^%x%x%x%x', self.at) or error('invalid unicode escape', 0)
+    local digits = self.source:match('^%x%x%x%x', self.at) or errors.fail('json_unicode_escape')
     self.at = self.at + 4
     return tonumber(digits, 16)
 end
@@ -76,18 +80,18 @@ end
 function Parser:read_unicode()
     local code = self:read_hex4()
     if code >= 0xdc00 and code <= 0xdfff then
-        error('unexpected low surrogate', 0)
+        errors.fail('json_lone_low_surrogate')
     end
     if code < 0xd800 or code > 0xdbff then
         return code
     end
     if self.source:sub(self.at, self.at + 1) ~= '\\u' then
-        error('missing low surrogate', 0)
+        errors.fail('json_missing_low_surrogate')
     end
     self.at = self.at + 2
     local low = self:read_hex4()
     if low < 0xdc00 or low > 0xdfff then
-        error('invalid low surrogate', 0)
+        errors.fail('json_bad_low_surrogate')
     end
     return 0x10000 + (code - 0xd800) * 1024 + low - 0xdc00
 end
@@ -97,7 +101,7 @@ function Parser:read_escape()
     if char == 'u' then
         return utf8.char(self:read_unicode())
     end
-    return ESCAPES[char] or error('invalid escape', 0)
+    return ESCAPES[char] or errors.fail('json_escape')
 end
 
 function Parser:read_string()
@@ -111,11 +115,11 @@ function Parser:read_string()
         if char == '\\' then
             char = self:read_escape()
         elseif char:byte() < 32 then
-            error('control character in string', 0)
+            errors.fail('json_control_char')
         end
         parts[#parts + 1] = char
     end
-    error('unterminated string', 0)
+    errors.fail('json_unterminated_string')
 end
 
 ---@param text string
@@ -138,13 +142,10 @@ local function parse_number(text)
 end
 
 function Parser:read_number()
-    local text = self.source:match('^[^%s,%]%}]+', self.at)
-    local value = text and parse_number(text)
-    if not text or not value then
-        error('invalid number', 0)
-    end
+    local text = self.source:match('^[^%s,%]%}]+', self.at) or errors.fail('json_number')
+    local value = parse_number(text) or errors.fail('json_number')
     if math.abs(value) == math.huge then
-        error('nonfinite number', 0)
+        errors.fail('json_number_range')
     end
     self.at = self.at + #text
     return value
@@ -174,15 +175,15 @@ function Parser:read_object(depth)
     end
     while true do
         if self:peek() ~= '"' then
-            error('object key expected', 0)
+            errors.fail('json_key_expected')
         end
         local key = self:read_string()
         if result[key] ~= nil then
-            error('duplicate key', 0)
+            errors.fail('json_duplicate_key')
         end
         self:skip_blank()
         if not self:close_if(':') then
-            error('colon expected', 0)
+            errors.fail('json_colon')
         end
         result[key] = self:read_value(depth + 1)
         if self:finish_member('}') then
@@ -193,7 +194,7 @@ end
 
 function Parser:read_value(depth)
     if depth > MAX_DEPTH then
-        error('JSON nesting too deep', 0)
+        errors.fail('json_too_deep')
     end
     self:skip_blank()
     local char = self:peek()
@@ -220,13 +221,13 @@ end
 ---@return any value
 function M.decode(source)
     if #source > MAX_SOURCE_BYTES then
-        error('invalid JSON size', 0)
+        errors.fail('json_too_large')
     end
     local parser = new_parser(source)
     local result = parser:read_value(0)
     parser:skip_blank()
     if parser.at <= #source then
-        error('trailing JSON data', 0)
+        errors.fail('json_trailing')
     end
     return result
 end

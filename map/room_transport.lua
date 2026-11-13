@@ -1,3 +1,5 @@
+local errors = require 'room_errors'
+
 local MAX_BYTES = 16384
 local MAX_QUEUE = 262144
 local FLUSH_PER_TICK = 4
@@ -6,15 +8,21 @@ local PACKET_LIMITS = {[80] = 240, [350] = 799}
 local PACKET_PATTERN = '^([%w%-]+)|(%d+)|(%d+)|(%d+)|(%x+)$'
 
 local function hex(value)
-    return (value:gsub('.', function(char)
-        return ('%02x'):format(char:byte())
-    end))
+    return (value:gsub(
+        '.',
+        function(char)
+            return ('%02x'):format(char:byte())
+        end
+    ))
 end
 
 local function unhex(value)
-    return (value:gsub('%x%x', function(pair)
-        return string.char(tonumber(pair, 16))
-    end))
+    return (value:gsub(
+        '%x%x',
+        function(pair)
+            return string.char(tonumber(pair, 16))
+        end
+    ))
 end
 
 ---@class SyncFragment
@@ -37,13 +45,13 @@ local function parse_fragment(packet, room, chunk)
     local index = tonumber(index_text)
     local count = tonumber(count_text)
     if #data % 2 ~= 0 or #data > chunk * 2 then
-        return nil, 'invalid sync fragment'
+        return nil, errors.text('transport_bad_fragment')
     end
     if count < 1 or count > math.ceil(MAX_BYTES / chunk) then
-        return nil, 'invalid sync fragment'
+        return nil, errors.text('transport_bad_fragment')
     end
     if index < 1 or index > count then
-        return nil, 'invalid sync fragment'
+        return nil, errors.text('transport_bad_fragment')
     end
     return {sequence = sequence, index = index, count = count, data = data}
 end
@@ -76,14 +84,14 @@ M.__index = M
 ---@return RoomTransport
 function M.new(room, relay, deliver, failed, chunk)
     if not room:match('^[%w%-]+$') or #room > 36 then
-        error('invalid room', 0)
+        errors.fail('transport_bad_room')
     end
     chunk = chunk or 80
     local packet_limit = PACKET_LIMITS[chunk]
     if not packet_limit then
-        error('unsupported sync chunk profile', 0)
+        errors.fail('transport_bad_chunk')
     end
-    return setmetatable({
+    local o = {
         queued = 0,
         _room = room,
         _relay = relay,
@@ -98,16 +106,18 @@ function M.new(room, relay, deliver, failed, chunk)
         _expected = 1,
         _index = 1,
         _parts = {},
-    }, M)
+    }
+    setmetatable(o, M)
+    return o
 end
 
 ---@param value string
 function M:enqueue(value)
     if #value == 0 or #value > MAX_BYTES then
-        error('sync response exceeds 16 KiB limit', 0)
+        errors.fail('transport_too_large')
     end
     if self.queued + #value > MAX_QUEUE then
-        error('sync queue full', 0)
+        errors.fail('transport_queue_full')
     end
     self._sending = self._sending + 1
     local count = math.ceil(#value / self._chunk)
@@ -149,7 +159,7 @@ end
 function M:finish_response()
     local value = table.concat(self._parts)
     if #value > MAX_BYTES then
-        return self:stop('sync response too large')
+        return self:stop(errors.text('transport_response_too_large'))
     end
     self._expected = self._expected + 1
     self._index = 1
@@ -165,15 +175,15 @@ function M:accept_fragment(fragment)
         return
     end
     if fragment.sequence ~= self._expected or index > self._index then
-        return self:stop('sync sequence gap')
+        return self:stop(errors.text('transport_sequence_gap'))
     end
     if self._count and self._count ~= count then
-        return self:stop('sync sequence gap')
+        return self:stop(errors.text('transport_sequence_gap'))
     end
     local part = unhex(fragment.data)
     if index < self._index then
         if self._parts[index] ~= part then
-            self:stop('conflicting sync fragment')
+            self:stop(errors.text('transport_fragment_conflict'))
         end
         return
     end
@@ -192,7 +202,7 @@ function M:receive(sender, packet)
         return
     end
     if type(packet) ~= 'string' or #packet > self._packet_limit then
-        return self:stop('invalid sync packet size')
+        return self:stop(errors.text('transport_packet_size'))
     end
     local fragment, reason = parse_fragment(packet, self._room, self._chunk)
     if reason then

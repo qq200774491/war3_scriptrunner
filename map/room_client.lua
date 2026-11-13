@@ -1,15 +1,18 @@
 local json = require 'room_json'
+local errors = require 'room_errors'
 
 local MAX_PENDING = 128
 local MAX_MESSAGES_PER_POLL = 16
 local MAX_PLAYER_SLOT = 15
+local RELAYED_KINDS = {event = true, ready = true, room_failed = true}
+local FAILURE_MESSAGE = '{"kind":"room_failed","room":"%s","reason":"%s"}'
 
 ---@class RoomClient
 ---@field _profile RoomProfile
 ---@field _native NativeRoom
 ---@field _common table
 ---@field _player integer
----@field _status fun(kind: string, detail: any)
+---@field _on_status fun(kind: string, detail: any)|nil
 ---@field _relay_message fun(raw: string)
 ---@field _state 'waiting'|'ready'|'closed'
 ---@field _pending table[]
@@ -20,19 +23,29 @@ M.__index = M
 ---@param profile RoomProfile
 ---@param native NativeRoom
 ---@param common table
----@param callbacks {on_status: (fun(kind: string, detail: any))|nil, on_relay_message: fun(raw: string)}
+---@param callbacks ClientCallbacks
 ---@return RoomClient
 function M.new(profile, native, common, callbacks)
-    return setmetatable({
+    local o = {
         _profile = profile,
         _native = native,
         _common = common,
         _player = common.GetPlayerId(common.GetLocalPlayer()),
-        _status = callbacks.on_status or function() end,
+        _on_status = callbacks.on_status,
         _relay_message = callbacks.on_relay_message,
         _state = 'waiting',
         _pending = {},
-    }, M)
+    }
+    setmetatable(o, M)
+    return o
+end
+
+---@param kind string
+---@param detail any
+function M:report_status(kind, detail)
+    if self._on_status then
+        self._on_status(kind, detail)
+    end
 end
 
 function M:close()
@@ -51,10 +64,9 @@ function M:failure(reason)
         return
     end
     self:close()
-    self._status('failed', tostring(reason))
+    self:report_status('failed', tostring(reason))
     if self._player == self._profile.relay then
-        local notice = '{"kind":"room_failed","room":"' .. self._profile.room
-            .. '","reason":"relay transport failed"}'
+        local notice = FAILURE_MESSAGE:format(self._profile.room, errors.text('client_relay_failed'))
         pcall(self._relay_message, notice)
     end
 end
@@ -68,11 +80,11 @@ function M:send(player, request_id, event, payload)
         return
     end
     if self._state == 'closed' then
-        self._status('request_rejected', 'connection closed')
+        self:report_status('request_rejected', errors.text('client_closed'))
         return
     end
     if #self._pending >= MAX_PENDING then
-        self:failure('pending request queue full')
+        self:failure(errors.text('client_queue_full'))
         return
     end
     self._pending[#self._pending + 1] = {request_id, event, payload}
@@ -115,9 +127,8 @@ function M:handle_message(raw)
     elseif message.kind == 'room_failed' then
         self._state = 'waiting'
     end
-    self._status(message.kind, message)
-    local relayed = message.kind == 'event' or message.kind == 'ready' or message.kind == 'room_failed'
-    if self._player == self._profile.relay and relayed then
+    self:report_status(message.kind, message)
+    if self._player == self._profile.relay and RELAYED_KINDS[message.kind] then
         self._relay_message(raw)
     end
 end
@@ -135,7 +146,7 @@ function M:poll()
     end
     local departed = self:departed_player()
     if departed then
-        self:failure('game player ' .. departed .. ' left; restart requires a new room')
+        self:failure(errors.text('client_player_left', departed))
         return
     end
     if not self:ensure_connection() then
