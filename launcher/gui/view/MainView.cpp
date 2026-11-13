@@ -33,10 +33,13 @@ MainView::MainView(AppModel &State, EventRouter &Events, Node Root, std::functio
     Rail = std::make_unique<RailBar>(Services, Root);
     const Node Shell = Ui.frame(Root, {.Fill = Stretch::Both, .Expand = true});
     Top = std::make_unique<TopBar>(Services, Shell);
+    Ui.divider(Shell, Edge::Top);
     Navigation = std::make_unique<NavigationPanel>(Services, Shell);
+    Ui.divider(Shell, Edge::Left);
 
     const Node Workspace = Ui.frame(Shell, {.Fill = Stretch::Both, .Expand = true});
     Status = std::make_unique<StatusBar>(Services, Workspace);
+    Ui.divider(Workspace, Edge::Bottom);
     Console = std::make_unique<ConsolePage>(Services, Workspace);
     Stats = std::make_unique<StatsPage>(Services, Workspace);
     Settings = std::make_unique<SettingsPage>(Services, Workspace);

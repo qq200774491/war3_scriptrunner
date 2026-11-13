@@ -60,13 +60,15 @@ void RailBar::sync() {
 NavigationPanel::NavigationPanel(const ViewServices &Context, Node Parent) : Services(Context) {
     const Builder &Ui = Services.Ui;
     AppModel &Model = Services.Model;
-    const Node Panel = Ui.frame(Parent, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = geometry::SideWidth});
+    const Node Panel =
+        Ui.frame(Parent, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = geometry::SideWidth}, &Palette::Side);
 
     const Node Head = Ui.frame(Panel, {.Side = Edge::Top, .Fill = Stretch::X, .Height = geometry::ToolbarHeight});
     const Node Body = Ui.frame(Panel, {.Fill = Stretch::Both, .Expand = true}, std::nullopt, 12);
     Actions = std::make_unique<ActionBar>(Services, Head, Body);
 
-    const Node Scopes = Ui.frame(Body, {.Fill = Stretch::X, .PadTop = 22});
+    const Node Scopes = Ui.frame(Body, {.Fill = Stretch::X, .PadTop = 26});
+    Ui.label(Scopes, {.Fill = Stretch::X, .PadLeft = 14, .PadBottom = 8}, "日志", {.Color = &Palette::Text2, .Bold = true});
     for (std::size_t Index = 0; Index < ScopeItems.size(); ++Index) {
         const ScopeItem &Item = ScopeItems[Index];
         NavRow::Look Appearance{.Icon = Item.Icon, .Text = scope_label(Item.Scope), .Tint = Item.Tint};

@@ -23,6 +23,13 @@ Node Builder::card(Node Parent, const Pack &Layout, int Padding, ColorRole Fill,
     return frame(Outer, {.Fill = Stretch::Both, .Expand = true}, std::nullopt, Padding);
 }
 
+Node Builder::divider(Node Parent, Edge Side) const {
+    const bool Vertical = Side == Edge::Left || Side == Edge::Right;
+    const Pack Line = Vertical ? Pack{.Side = Side, .Fill = Stretch::Y, .Width = 1}
+                               : Pack{.Side = Side, .Fill = Stretch::X, .Height = 1};
+    return frame(Parent, Line, &Palette::Divider);
+}
+
 Node Builder::label(Node Parent, const Pack &Layout, std::string_view Text, const TextStyle &Look) const {
     const Node Created = Parent.add(Node::create("label"), Layout);
     Created.str("text", Text);

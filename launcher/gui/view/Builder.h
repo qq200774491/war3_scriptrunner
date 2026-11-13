@@ -35,6 +35,9 @@ public:
 
     Node card(Node Parent, const Pack &Layout, int Padding, ColorRole Fill = &Palette::Card, int Radius = 8) const;
 
+    /// 区域之间的 1px 淡线，贴着 Parent 的 Side 一边排。
+    Node divider(Node Parent, Edge Side) const;
+
     Node label(Node Parent, const Pack &Layout, std::string_view Text, const TextStyle &Look = {}) const;
 
     Node icon_button(Node Parent, const Pack &Layout, const char *Icon, std::string_view Tooltip,
