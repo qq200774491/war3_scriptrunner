@@ -113,6 +113,7 @@ RunStatsSnapshot RunStats::snapshot() const {
     if (Started) {
         const Clock::time_point Until = Stopped ? *Stopped : Clock::now();
         Result.Uptime = std::chrono::duration_cast<std::chrono::milliseconds>(Until - *Started);
+        Result.Began = true;
         Result.Running = !Stopped.has_value();
     }
     return Result;

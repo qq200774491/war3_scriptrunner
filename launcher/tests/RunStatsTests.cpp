@@ -43,6 +43,7 @@ const Registrar LatencyRingOverwritesOldest("stats.latency_ring_buffer_overflow"
 const Registrar StatsSnapshotAndReset("stats.snapshot_counts_and_begin_resets", [] {
     RunStats Stats;
     check(!Stats.snapshot().Running, "begin 之前不算运行中");
+    check(!Stats.snapshot().Began, "begin 之前没有启动过");
     check(Stats.snapshot().Players.empty(), "begin 之前没有玩家");
     Stats.begin(2);
     Stats.record_request(0, 20ms, false);
@@ -70,6 +71,7 @@ const Registrar StatsSnapshotAndReset("stats.snapshot_counts_and_begin_resets", 
     Stats.end();
     const RunStatsSnapshot Stopped = Stats.snapshot();
     check(!Stopped.Running, "end 之后不在运行");
+    check(Stopped.Began, "停止后仍算启动过");
     check_equal(Stopped.Players[0].Latency.Count, std::uint64_t(2)); // 停止后保留数据
     std::this_thread::sleep_for(20ms);
     check_equal(Stats.snapshot().Uptime, Stopped.Uptime); // 运行时长停在 end 的时刻

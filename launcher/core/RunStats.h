@@ -58,7 +58,8 @@ struct RunStatsSnapshot {
     std::size_t Backlog = 0;     ///< 等待送进脚本宿主的请求数
     std::size_t PeakBacklog = 0;
     std::chrono::milliseconds Uptime{0};
-    bool Running = false;
+    bool Began = false;   ///< 这一轮的云服务启动过
+    bool Running = false; ///< 启动了且还没停
 };
 
 /// 一轮运行的统计。所有方法都可以从任意线程调用；记录只做原子加或很短的加锁，不会拖慢请求。
