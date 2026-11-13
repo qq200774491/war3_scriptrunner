@@ -3,6 +3,7 @@
 #include "AppResources.h"
 #include "Error.h"
 #include "FileSystem.h"
+#include "Geometry.h"
 #include "Json.h"
 #include "Png.h"
 #include "Text.h"
@@ -79,7 +80,10 @@ void Application::open_window() {
     BKWindow *Created = BK_window_new(Context.get(), "ScriptRoom", Launch.Width, Launch.Height);
     require(Created != nullptr, "无法创建窗口");
     Window = std::make_unique<WindowHandle>(Created);
-    apply_app_icon(static_cast<HWND>(BK_window_handle(Created)));
+    const auto Handle = static_cast<HWND>(BK_window_handle(Created));
+    apply_app_icon(Handle);
+    Chrome = std::make_unique<WindowChrome>(Handle, Context.get(), geometry::TopBarHeight, geometry::RailWidth);
+    Chrome->resize_client(Launch.Width, Launch.Height);
 
     BKWindowCallbacks Callbacks = {};
     Callbacks.data = this;

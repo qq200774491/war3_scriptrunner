@@ -5,6 +5,7 @@
 #include "CommandLine.h"
 #include "EventRouter.h"
 #include "MainView.h"
+#include "WindowChrome.h"
 
 #include <memory>
 
@@ -47,6 +48,7 @@ private:
     std::unique_ptr<MainView> View;
     ContextHandle Context;
     std::unique_ptr<WindowHandle> Window;
+    std::unique_ptr<WindowChrome> Chrome; ///< 必须在 Window 之后声明：先于窗口析构
     bool TimerArmed = false;
     bool CloseRequested = false;
 };
