@@ -141,6 +141,27 @@ const Registrar ThemePalettesMatchDesign("gui.theme.palettes", [] {
     check(!theme_from_key("pink").has_value());
 });
 
+const Registrar ThemeSeriesColors("gui.theme.chart_series_colors", [] {
+    for (const ThemeKind Kind : AllThemes) {
+        const Palette Colors = palette_of(Kind);
+        check(Colors.Series[0] == Colors.AccentBright, theme_key(Kind));
+        for (std::size_t Left = 0; Left < Colors.Series.size(); ++Left) {
+            for (std::size_t Right = Left + 1; Right < Colors.Series.size(); ++Right) {
+                check(Colors.Series[Left] != Colors.Series[Right], theme_key(Kind));
+            }
+        }
+    }
+    // 青色主题把候选里的青色让掉，第二种颜色仍是蓝。
+    const Palette Teal = palette_of(ThemeKind::Teal);
+    check_equal(Teal.Series[1].hex(), std::string("#5b9bf5"));
+    for (const Rgb Color : Teal.Series) {
+        check(Color != (Rgb{0x2F, 0xD0, 0xB5}), "青色主题不应再用候选青色");
+    }
+    // 蓝色主题让掉候选蓝，第二种是青；白色主题用深一档的候选。
+    check_equal(palette_of(ThemeKind::Blue).Series[1].hex(), std::string("#2fd0b5"));
+    check_equal(palette_of(ThemeKind::White).Series[1].hex(), std::string("#0d9488"));
+});
+
 const Registrar ThemeBlendMixesChannels("gui.theme.blend", [] {
     check(blend(Rgb{0, 0, 0}, Rgb{255, 255, 255}, 0.0f) == (Rgb{0, 0, 0}));
     check(blend(Rgb{0, 0, 0}, Rgb{255, 255, 255}, 1.0f) == (Rgb{255, 255, 255}));

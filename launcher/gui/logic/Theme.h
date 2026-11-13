@@ -61,6 +61,9 @@ struct Palette {
     Rgb CheckEdge;
     float TileAlpha = 0.18f;
     bool Light = false;
+
+    /// 图表里各玩家的颜色：第一个是主题色，其余色相互相分开；玩家多于 6 个时循环使用。
+    std::array<Rgb, 6> Series;
 };
 
 Palette palette_of(ThemeKind Kind);

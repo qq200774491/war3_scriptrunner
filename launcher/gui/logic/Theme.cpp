@@ -61,6 +61,14 @@ constexpr std::array<LegacyKey, 3> LegacyKeys = {{
     {"light", ThemeKind::White},
 }};
 
+// 图表配色的候选：蓝、青、琥珀、紫、粉、绿。白色主题用深一档的，白底上才看得清。
+constexpr std::array<Rgb, 6> DarkSeries = {{
+    {0x5B, 0x9B, 0xF5}, {0x2F, 0xD0, 0xB5}, {0xF5, 0xA5, 0x24}, {0xA7, 0x8B, 0xFA}, {0xF4, 0x72, 0xB6}, {0x84, 0xCC, 0x16},
+}};
+constexpr std::array<Rgb, 6> LightSeries = {{
+    {0x25, 0x63, 0xEB}, {0x0D, 0x94, 0x88}, {0xD9, 0x77, 0x06}, {0x7C, 0x3A, 0xED}, {0xDB, 0x27, 0x77}, {0x65, 0xA3, 0x0D},
+}};
+
 const ThemeSpec &spec_of(ThemeKind Kind) {
     const auto Found =
         std::find_if(Themes.begin(), Themes.end(), [Kind](const ThemeSpec &Spec) { return Spec.Kind == Kind; });
@@ -234,6 +242,38 @@ Rgb blend(Rgb Base, Rgb Over, float Alpha) {
     return {mix(Base.R, Over.R), mix(Base.G, Over.G), mix(Base.B, Over.B)};
 }
 
+namespace {
+
+float hue_of(Rgb Color) {
+    const float R = static_cast<float>(Color.R) / 255.0f;
+    const float G = static_cast<float>(Color.G) / 255.0f;
+    const float B = static_cast<float>(Color.B) / 255.0f;
+    return std::atan2(std::sqrt(3.0f) * (G - B), 2.0f * R - G - B);
+}
+
+float hue_distance(Rgb Left, Rgb Right) {
+    constexpr float Pi = 3.14159265f;
+    const float Gap = std::fabs(hue_of(Left) - hue_of(Right));
+    return std::min(Gap, 2.0f * Pi - Gap);
+}
+
+/// 主题色打头，候选里和主题色色相最近的那个让位，其余按原顺序排在后面。
+std::array<Rgb, 6> series_of(Rgb Accent, const std::array<Rgb, 6> &Candidates) {
+    const auto Clash = std::min_element(Candidates.begin(), Candidates.end(), [Accent](Rgb Left, Rgb Right) {
+        return hue_distance(Left, Accent) < hue_distance(Right, Accent);
+    });
+    std::array<Rgb, 6> Result = {Accent};
+    std::size_t Next = 1;
+    for (auto Candidate = Candidates.begin(); Candidate != Candidates.end(); ++Candidate) {
+        if (Candidate != Clash) {
+            Result[Next++] = *Candidate;
+        }
+    }
+    return Result;
+}
+
+} // namespace
+
 Palette palette_of(ThemeKind Kind) {
     const ThemeSpec &Spec = spec_of(Kind);
     Palette P;
@@ -249,6 +289,7 @@ Palette palette_of(ThemeKind Kind) {
     P.AccentPressed = Spec.SolidPressed;
     P.AccentBright = Spec.Bright;
     P.AccentOn = Spec.On;
+    P.Series = series_of(Spec.Bright, Spec.Light ? LightSeries : DarkSeries);
     return P;
 }
 
