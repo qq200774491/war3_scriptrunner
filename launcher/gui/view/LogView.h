@@ -46,6 +46,7 @@ private:
     void draw_row(BuiRaster *Target, const Metrics &Layout, int Slot);
     void draw_header(BuiRaster *Target, const Metrics &Layout);
     void draw_scrollbar(BuiRaster *Target, const Metrics &Layout);
+    Rgb source_color(LogSource Source) const;
 
     Metrics metrics() const;
     Thumb thumb(const Metrics &Layout) const;

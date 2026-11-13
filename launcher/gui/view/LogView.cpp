@@ -23,11 +23,11 @@ struct LogView::Metrics {
     int Y = 0;
     int Width = 0;
     int Height = 0;
-    int HeaderHeight = px(24);
-    int RowHeight = px(27);
-    int Pad = px(8);
-    int NumberWidth = px(40);
-    int SourceWidth = px(52);
+    int HeaderHeight = px(36);
+    int RowHeight = px(32);
+    int Pad = px(20);
+    int NumberWidth = px(56);
+    int SourceWidth = px(68);
     int BarWidth = px(6);
 
     int body_height() const { return std::max(0, Height - HeaderHeight); }
@@ -265,7 +265,7 @@ void LogView::on_draw(void *Self, BKNode *, BuiRaster *Target, const int[4]) {
 void LogView::draw(BuiRaster *Target) {
     const Metrics Layout = metrics();
     paint::fill(Target, static_cast<float>(Layout.X), static_cast<float>(Layout.Y), static_cast<float>(Layout.Width),
-                static_cast<float>(Layout.Height), Colors.Canvas);
+                static_cast<float>(Layout.Height), Colors.Panel);
     draw_header(Target, Layout);
 
     const int Count = static_cast<int>(Rows.size());
@@ -287,10 +287,21 @@ void LogView::draw_header(BuiRaster *Target, const Metrics &Layout) {
     const float NumberX = X + static_cast<float>(Layout.Pad);
     const float SourceX = NumberX + static_cast<float>(Layout.NumberWidth);
     const float ContentX = SourceX + static_cast<float>(Layout.SourceWidth);
-    paint::text(Target, NumberX, Y, static_cast<float>(Layout.NumberWidth), H, "#", Colors.Muted);
-    paint::text(Target, SourceX, Y, static_cast<float>(Layout.SourceWidth), H, "来源", Colors.Muted);
-    paint::text(Target, ContentX, Y, static_cast<float>(Layout.Width) - (ContentX - X), H, "内容", Colors.Muted);
-    paint::fill(Target, X, Y + H - 1.0f, static_cast<float>(Layout.Width), 1.0f, Colors.Divider);
+    paint::text(Target, NumberX, Y, static_cast<float>(Layout.NumberWidth), H, "#", Colors.Text3);
+    paint::text(Target, SourceX, Y, static_cast<float>(Layout.SourceWidth), H, "来源", Colors.Text3);
+    paint::text(Target, ContentX, Y, static_cast<float>(Layout.Width) - (ContentX - X), H, "内容", Colors.Text3);
+}
+
+Rgb LogView::source_color(LogSource Source) const {
+    switch (Source) {
+    case LogSource::Error:
+        return Colors.Danger;
+    case LogSource::Script:
+        return Colors.AccentOn;
+    case LogSource::System:
+        break;
+    }
+    return Colors.Text3;
 }
 
 void LogView::draw_row(BuiRaster *Target, const Metrics &Layout, int Slot) {
@@ -300,24 +311,24 @@ void LogView::draw_row(BuiRaster *Target, const Metrics &Layout, int Slot) {
     const float H = static_cast<float>(Layout.RowHeight);
     const float W = static_cast<float>(Layout.Width);
 
-    Rgb Background = Slot % 2 == 0 ? Colors.Canvas : Colors.Panel;
-    if (Chosen && *Chosen == Entry.Text) {
-        Background = Colors.Selected;
+    const bool IsChosen = Chosen && *Chosen == Entry.Text;
+    if (IsChosen) {
+        paint::fill(Target, X, Y, W, H, Colors.AccentDeep);
+        paint::fill(Target, X, Y, static_cast<float>(px(2)), H, Colors.AccentBright);
     } else if (Slot == Hover) {
-        Background = Colors.Raised;
+        paint::fill(Target, X, Y, W, H, Colors.Overlay, 0.05f);
     }
-    paint::fill(Target, X, Y, W, H, Background);
 
     const float NumberX = X + static_cast<float>(Layout.Pad);
     const float SourceX = NumberX + static_cast<float>(Layout.NumberWidth);
     const float ContentX = SourceX + static_cast<float>(Layout.SourceWidth);
     // 行号是保留窗口内的序号，所以用 Rows 里的原始下标而不是筛选后的位置。
-    paint::text(Target, NumberX, Y, static_cast<float>(Layout.NumberWidth), H,
-                std::format("{:03}", Rows[static_cast<std::size_t>(Slot)] + 1), Colors.Muted);
-    const Rgb SourceColor = Entry.Source == LogSource::Error ? Colors.Danger : Colors.Muted;
-    paint::text(Target, SourceX, Y, static_cast<float>(Layout.SourceWidth), H, source_label(Entry.Source), SourceColor);
-    paint::text(Target, ContentX, Y, W - (ContentX - X) - static_cast<float>(px(10)), H,
-                std::string(paint::utf8_prefix(Entry.Text, MaxDrawnBytes)), Colors.Text);
+    paint::mono_text(Target, NumberX, Y, static_cast<float>(Layout.NumberWidth), H,
+                     std::format("{:03}", Rows[static_cast<std::size_t>(Slot)] + 1), IsChosen ? Colors.AccentOn : Colors.Text4);
+    paint::text(Target, SourceX, Y, static_cast<float>(Layout.SourceWidth), H, source_label(Entry.Source),
+                source_color(Entry.Source));
+    paint::text(Target, ContentX, Y, W - (ContentX - X) - static_cast<float>(px(14)), H,
+                std::string(paint::utf8_prefix(Entry.Text, MaxDrawnBytes)), IsChosen ? Rgb{255, 255, 255} : Colors.Text);
 }
 
 void LogView::draw_scrollbar(BuiRaster *Target, const Metrics &Layout) {
@@ -325,9 +336,10 @@ void LogView::draw_scrollbar(BuiRaster *Target, const Metrics &Layout) {
         return;
     }
     const Thumb Bar = thumb(Layout);
-    const float BarX = static_cast<float>(Layout.X + Layout.Width - Layout.BarWidth - px(2));
-    paint::fill(Target, BarX, static_cast<float>(Layout.Y + Layout.HeaderHeight) + Bar.Offset,
-                static_cast<float>(Layout.BarWidth), Bar.Length, Colors.Border);
+    const float BarX = static_cast<float>(Layout.X + Layout.Width - Layout.BarWidth - px(3));
+    paint::round_rect(Target, BarX, static_cast<float>(Layout.Y + Layout.HeaderHeight) + Bar.Offset,
+                      static_cast<float>(Layout.BarWidth), Bar.Length, static_cast<float>(Layout.BarWidth) * 0.5f,
+                      Colors.Edge);
 }
 
 } // namespace scriptroom::gui
