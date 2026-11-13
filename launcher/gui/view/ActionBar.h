@@ -1,22 +1,25 @@
 #pragma once
 
+#include "PillButton.h"
 #include "ViewServices.h"
 
 namespace scriptroom::gui {
 
-/// 工作区顶部的操作栏：启动、检查、停止，以及右侧的“关闭全部魔兽”。
 class ActionBar {
 public:
-    ActionBar(const ViewServices &Context, Node Parent);
+    ActionBar(const ViewServices &Context, Node Head, Node Body);
 
     void sync();
 
 private:
+    void paint_status(BuiRaster *Target, const Surface::Box &Area) const;
+
     const ViewServices &Services;
-    Node StartButton;
-    Node CheckButton;
-    Node StopButton;
-    Node CloseGamesButton;
+    PillButton StartButton;
+    PillButton CheckButton;
+    PillButton StopButton;
+    PillButton CloseGamesButton;
+    Surface *Status = nullptr;
 };
 
 } // namespace scriptroom::gui
