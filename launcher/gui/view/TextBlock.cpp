@@ -17,7 +17,7 @@ TextBlock::TextBlock() : Handle(Node::create("custom")) {
 }
 
 int TextBlock::line_height() const {
-    return px(20);
+    return px(23);
 }
 
 void TextBlock::set_text(std::string_view NewText) {
