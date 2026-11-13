@@ -90,7 +90,8 @@ void SettingsPage::build_path_row(Node Group, const PathRow &Spec) {
 void SettingsPage::build_limits(Node Content) {
     const Builder &Ui = Services.Ui;
     AppModel &Model = Services.Model;
-    const Node Row = Ui.frame(group(Content), {.Fill = Stretch::X});
+    const Node Group = group(Content);
+    const Node Row = Ui.frame(Group, {.Fill = Stretch::X, .PadBottom = 10});
     Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = LabelWidth}, "服务时长", {.Color = &Palette::Text2});
     SecondsField = Ui.text_field(Row, {.Side = Edge::Left, .Width = 100, .Height = geometry::FieldHeight},
                                  Model.draft().Seconds, [&Model](const std::string &Text) { Model.draft().Seconds = Text; });
@@ -99,6 +100,15 @@ void SettingsPage::build_limits(Node Content) {
     TimeoutField = Ui.text_field(Row, {.Side = Edge::Left, .Width = 100, .Height = geometry::FieldHeight},
                                  Model.draft().Timeout, [&Model](const std::string &Text) { Model.draft().Timeout = Text; });
     Ui.label(Row, {.Side = Edge::Left, .Fill = Stretch::Y, .PadLeft = 8}, "秒", {.Color = &Palette::Text3});
+
+    const Node Clients = Ui.frame(Group, {.Fill = Stretch::X});
+    Ui.label(Clients, {.Side = Edge::Left, .Fill = Stretch::Y, .Width = LabelWidth}, "客户端个数", {.Color = &Palette::Text2});
+    ClientsPicker = Segmented(
+        Ui, Clients, {.Side = Edge::Left}, count_labels(MinClients, MaxClients),
+        [&Model] { return Model.draft().Clients - MinClients; },
+        [&Model](std::size_t Index) { Model.set_clients(MinClients + Index); }, 44);
+    Ui.label(Clients, {.Side = Edge::Left, .Fill = Stretch::Y, .PadLeft = 12}, "玩家 0 建房，其余依次加入",
+             {.Color = &Palette::Text3});
 }
 
 void SettingsPage::build_appearance(Node Content) {
@@ -166,6 +176,10 @@ void SettingsPage::sync() {
     }
     ThemeName.set_text(theme_label(Model.theme()));
     ConfigPathLabel.set_text("配置文件  " + path_to_utf8(Model.config_path()));
+    if (ShownClients != Model.draft().Clients) {
+        ShownClients = Model.draft().Clients;
+        ClientsPicker.refresh();
+    }
 }
 
 } // namespace scriptroom::gui

@@ -31,7 +31,8 @@ private:
     Node Details;
     Node Unresolved;
     PillButton OpenFolder;
-    std::array<PlayerPaths, 2> Players;
+    std::array<Node, MaxClients> Sections;
+    std::array<PlayerPaths, MaxClients> Players;
 };
 
 } // namespace scriptroom::gui

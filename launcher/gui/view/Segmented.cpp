@@ -48,4 +48,12 @@ Segmented::Segmented(const Builder &Ui, Node Parent, Pack Layout, std::vector<st
     *Self = Area;
 }
 
+std::vector<std::string> count_labels(std::size_t First, std::size_t Last) {
+    std::vector<std::string> Labels;
+    for (std::size_t Value = First; Value <= Last; ++Value) {
+        Labels.push_back(std::to_string(Value));
+    }
+    return Labels;
+}
+
 } // namespace scriptroom::gui

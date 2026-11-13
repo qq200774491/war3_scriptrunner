@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PillButton.h"
+#include "Segmented.h"
 #include "ViewServices.h"
 
 namespace scriptroom::gui {
@@ -19,6 +20,8 @@ private:
     PillButton CheckButton;
     PillButton StopButton;
     PillButton CloseGamesButton;
+    Segmented Clients;
+    std::size_t ShownClients = 0;
     Surface *Status = nullptr;
 };
 

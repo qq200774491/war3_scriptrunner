@@ -9,6 +9,7 @@ namespace {
 
 constexpr int PairButtonWidth = 112;
 constexpr int PanelInset = 12;
+constexpr int ClientOption = 40;
 
 }
 
@@ -21,6 +22,14 @@ ActionBar::ActionBar(const ViewServices &Context, Node Head, Node Body) : Servic
     CheckButton = Ui.pill(Head, {.Side = Edge::Left, .PadLeft = 8, .Width = PairButtonWidth}, "检查", Tone::Secondary,
                           [&Model] { Model.start(SessionMode::Check); });
     CheckButton.node().str("description", "检查配置及运行组件");
+
+    const Node Count = Ui.frame(Body, {.Side = Edge::Top, .Fill = Stretch::X, .PadBottom = 8});
+    Ui.label(Count, {.Side = Edge::Left, .Fill = Stretch::Y, .PadLeft = 16}, "客户端", {.Color = &Palette::Text2});
+    Clients = Segmented(
+        Ui, Count, {.Side = Edge::Right, .PadRight = 4}, count_labels(MinClients, MaxClients),
+        [&Model] { return Model.draft().Clients - MinClients; },
+        [&Model](std::size_t Index) { Model.set_clients(MinClients + Index); }, ClientOption);
+    Clients.node().str("description", "一次开几个魔兽：玩家 0 建房，其余依次加入");
 
     Status = Ui.surface(Body, {.Side = Edge::Top, .Fill = Stretch::X, .Height = 34},
                         [this](BuiRaster *Target, const Surface::Box &Area, const Surface &) {
@@ -66,6 +75,10 @@ void ActionBar::sync() {
     StopButton.set_enabled(Model.running());
     CloseGamesButton.set_enabled(!Model.closing_games());
     Status->invalidate();
+    if (ShownClients != Model.draft().Clients) {
+        ShownClients = Model.draft().Clients;
+        Clients.refresh();
+    }
 }
 
 } // namespace scriptroom::gui

@@ -23,4 +23,7 @@ private:
     Surface *Area = nullptr;
 };
 
+/// 从 First 到 Last 的数字选项：“1”“2”“3”…
+std::vector<std::string> count_labels(std::size_t First, std::size_t Last);
+
 } // namespace scriptroom::gui

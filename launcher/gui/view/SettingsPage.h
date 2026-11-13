@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ConfigDraft.h"
+#include "Segmented.h"
 #include "ViewServices.h"
 
 #include <array>
@@ -36,6 +37,8 @@ private:
     std::array<Node, PathFieldCount> PathFields;
     Node SecondsField;
     Node TimeoutField;
+    Segmented ClientsPicker;
+    std::size_t ShownClients = 0;
     Node ThemeName;
     Node ConfigPathLabel;
     std::uint64_t SeenRevision = 0;

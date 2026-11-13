@@ -27,13 +27,14 @@ ArchivesPage::ArchivesPage(const ViewServices &Context, Node Parent) : Services(
     for (std::size_t Player = 0; Player < Players.size(); ++Player) {
         build_player(Details, Player);
     }
-    Unresolved = Ui.label(Content, {.Fill = Stretch::X}, "填好存档目录后，这里显示两位玩家的存档位置",
+    Unresolved = Ui.label(Content, {.Fill = Stretch::X}, "填好存档目录后，这里显示每位玩家的存档位置",
                           {.Color = &Palette::Text3});
 }
 
 void ArchivesPage::build_player(Node Parent, std::size_t Player) {
     const Builder &Ui = Services.Ui;
     const Node Section = Ui.frame(Parent, {.Fill = Stretch::X, .PadBottom = 26});
+    Sections[Player] = Section;
     Ui.label(Section, {.Fill = Stretch::X, .PadBottom = 10}, std::format("玩家 {}", Player), {.Bold = true});
     Ui.label(Section, {.Fill = Stretch::X, .PadBottom = 2}, "客户端 INI", {.Color = &Palette::Text3});
     Section.add(Players[Player].ClientIni.node(), {.Fill = Stretch::X, .PadBottom = 12});
@@ -53,6 +54,7 @@ void ArchivesPage::sync(const std::optional<Config> &Resolved) {
         return;
     }
     for (std::size_t Player = 0; Player < Players.size(); ++Player) {
+        Sections[Player].set_visible(Player < Resolved->Clients);
         const fs::path &Archives = Resolved->Archives;
         Players[Player].ClientIni.set_text(
             path_to_utf8(Archives / L"clients" / std::format(L"player-{}.ini", Player)));
