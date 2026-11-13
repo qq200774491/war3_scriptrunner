@@ -116,7 +116,7 @@ void open_url(std::string_view Url) {
 }
 
 void show_startup_failure(std::string_view Message) {
-    MessageBoxW(nullptr, to_wide(Message).c_str(), L"ScriptRoom 启动失败", MB_OK | MB_ICONERROR);
+    MessageBoxW(nullptr, to_wide(Message).c_str(), L"云脚本Test启动器 启动失败", MB_OK | MB_ICONERROR);
 }
 
 ComScope::ComScope() {
