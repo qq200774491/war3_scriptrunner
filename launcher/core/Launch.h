@@ -2,6 +2,7 @@
 
 #include "Config.h"
 #include "Room.h"
+#include "RunStats.h"
 #include "Sync.h"
 
 #include <filesystem>
@@ -33,6 +34,8 @@ void check_setup(const fs::path &Root, const Config &Settings);
 /// 完整的一轮双人测试：整理存档与目录、起房间与云脚本、依次启动两个客户端并监测，
 /// 直到收到停止信号、时限到或出错。游戏窗口在服务结束后继续运行。
 /// 日志写入 Output（同时落盘到 build/game）；出错时抛出 Error。
-void run_session(const fs::path &Root, const Config &Settings, StopHandle Stop, std::shared_ptr<LogChannel> Output);
+/// Stats 在云服务启动时清零并开始计时，停止后保留这一轮的数据；可为空。
+void run_session(const fs::path &Root, const Config &Settings, StopHandle Stop, std::shared_ptr<LogChannel> Output,
+                 std::shared_ptr<RunStats> Stats = nullptr);
 
 } // namespace scriptroom

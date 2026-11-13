@@ -265,8 +265,8 @@ bool wait_host(const std::string &RoomId, double Seconds, GameMonitor &Host, con
 /// 一轮运行的日志：同时写入文件和界面队列，由独立线程串行落盘。
 class RunLog {
 public:
-    RunLog(const fs::path &Folder, std::shared_ptr<LogChannel> Output)
-        : Queue(std::make_shared<LogChannel>(2048)), Output(std::move(Output)) {
+    RunLog(const fs::path &Folder, std::shared_ptr<LogChannel> Output, std::shared_ptr<RunStats> Stats)
+        : Queue(std::make_shared<LogChannel>(2048)), Output(std::move(Output)), Stats(std::move(Stats)) {
         const std::int64_t Timestamp =
             std::chrono::duration_cast<Seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         FilePath = Folder / std::format(L"cloud-cpp-{}.log", Timestamp);
@@ -279,6 +279,7 @@ public:
                 if (!File) {
                     Failed = true;
                 }
+                this->Stats->record_log_lines(1 + static_cast<std::uint64_t>(std::count(Line->begin(), Line->end(), '\n')));
                 std::string Copy = *Line;
                 this->Output->try_send(std::move(Copy));
             }
@@ -310,6 +311,7 @@ private:
 
     std::shared_ptr<LogChannel> Queue;
     std::shared_ptr<LogChannel> Output;
+    std::shared_ptr<RunStats> Stats;
     fs::path FilePath;
     std::ofstream File;
     std::thread Writer;
@@ -495,7 +497,8 @@ void check_setup(const fs::path &Root, const Config &Settings) {
     require(comparable_path(Source) != comparable_path(Game), "测试目录不能覆盖原魔兽目录");
 }
 
-void run_session(const fs::path &Root, const Config &Settings, StopHandle Stop, std::shared_ptr<LogChannel> Output) {
+void run_session(const fs::path &Root, const Config &Settings, StopHandle Stop, std::shared_ptr<LogChannel> Output,
+                 std::shared_ptr<RunStats> Stats) {
     const fs::path Folder = game_work_dir(Root);
     std::error_code Code;
     fs::create_directories(Folder, Code);
@@ -506,7 +509,8 @@ void run_session(const fs::path &Root, const Config &Settings, StopHandle Stop, 
     if (Stop->is_requested()) {
         return;
     }
-    RunLog Log(Folder, std::move(Output));
+    const std::shared_ptr<RunStats> Recorder = stats_or_private(std::move(Stats));
+    RunLog Log(Folder, std::move(Output), Recorder);
 
     HostConfig Host;
     Host.Executable = native_dir(Root) / L"script_host.exe";
@@ -514,9 +518,11 @@ void run_session(const fs::path &Root, const Config &Settings, StopHandle Stop, 
     Host.Scripts = Settings.CloudScripts;
     Host.Archives = Settings.Archives;
     std::unique_ptr<Room> Active;
+    Recorder->begin(2);
     try {
-        Active = Room::start(Host, 0, Log.sender());
+        Active = Room::start(Host, 0, Log.sender(), Recorder);
     } catch (...) {
+        Recorder->end();
         Log.finish();
         throw;
     }
@@ -536,6 +542,7 @@ void run_session(const fs::path &Root, const Config &Settings, StopHandle Stop, 
     const std::vector<std::uint32_t> Pids = Session.finish();
     const RoomStatus Status = Active->status();
     Active->close();
+    Recorder->end();
 
     std::optional<std::string> ReportFailure;
     try {
