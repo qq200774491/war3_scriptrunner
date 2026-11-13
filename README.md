@@ -128,7 +128,7 @@ cmake --build build/launcher --config Release
 - 作者：花吃了阿九
 - 参与者：Carlos、小为（xiaowei）（详见下面的“参与者”）
 - 版本：0.3.0
-- 许可：GPL，原因见下面的“许可与用到的东西”
+- 许可：GPL-3.0，全文见 [LICENSE](LICENSE)，原因见下面的“许可与用到的东西”
 - 项目主页：https://github.com/qq200774491/war3_mls
 
 ## 参与者
@@ -140,7 +140,7 @@ cmake --build build/launcher --config Release
 
 ## 许可与用到的东西
 
-界面用的 [BUI](https://github.com/ppmpreetham/BUI) 是 GPL，所以本项目整体也按 GPL 开源。
+界面用的 [BUI](https://github.com/ppmpreetham/BUI) 是 GPL，所以本项目整体也按 GPL-3.0 开源。
 
 - [war3_quicktest](https://github.com/shuen4/war3_quicktest)：快速建房和加入的游戏适配，`native/quicktest/game_hooks.cpp` 改自它，保留 [MIT 许可](native/quicktest/LICENSE)，来历在[这里](native/quicktest/README.md)。
 - [Microsoft Detours](https://github.com/microsoft/Detours)：游戏适配层拦截函数用，仓库里放着 v4.0.1 源码和 [MIT 许可](third_party/detours/LICENSE.md)。
