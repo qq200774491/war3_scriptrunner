@@ -22,6 +22,7 @@ struct HostConfig {
     fs::path Dll;        ///< scriptrunner.dll
     fs::path Scripts;    ///< 含 main.lua 的云脚本目录
     fs::path Archives;   ///< 存档根目录
+    std::size_t Players = 2; ///< 玩家 0 … Players-1，一局最多 12 人
 };
 
 /// 宿主向外汇报的事件。

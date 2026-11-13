@@ -260,7 +260,11 @@ void Host::run() {
     try {
         ChildSpec Spec;
         Spec.Executable = Config.Executable;
-        Spec.Arguments = {path_to_utf8(Config.Dll), path_to_utf8(Config.Scripts), "0,1",
+        std::string Roster;
+        for (std::size_t Player = 0; Player < Config.Players; ++Player) {
+            Roster += (Player == 0 ? "" : ",") + std::to_string(Player);
+        }
+        Spec.Arguments = {path_to_utf8(Config.Dll), path_to_utf8(Config.Scripts), Roster,
                           path_to_utf8(Config.Archives)};
         Spec.PipeStdin = true;
         Spec.PipeStdout = true;
