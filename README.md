@@ -122,6 +122,14 @@ cmake --build build/launcher --config Release
 | `map` | 客户端那边的 Lua |
 | `third_party` | Detours、SQLite、nlohmann/json |
 
+## 关于
+
+- 软件名称：云脚本Test启动器（英文名 ScriptRoom）
+- 作者：花吃了阿九
+- 版本：0.3.0
+- 许可：GPL，原因见下面的“许可与用到的东西”
+- 项目主页：https://github.com/qq200774491/war3_mls
+
 ## 参与者
 
 - 花吃了阿九
