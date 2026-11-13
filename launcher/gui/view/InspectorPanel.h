@@ -1,5 +1,6 @@
 #pragma once
 
+#include "PillButton.h"
 #include "TextBlock.h"
 #include "ViewServices.h"
 
@@ -8,7 +9,6 @@
 
 namespace scriptroom::gui {
 
-/// 右侧详情栏：选中日志全文、运行路径、存档目录与运行设置。
 class InspectorPanel {
 public:
     InspectorPanel(const ViewServices &Context, Node Parent);
@@ -19,12 +19,10 @@ public:
     void sync(const std::optional<Config> &Resolved);
 
 private:
-    /// 加一项“小标题 + 自动折行的路径”。
     void add_path(Node Parent, const char *Title, TextBlock &Value);
 
     const ViewServices &Services;
     Node Body;
-    Node StatusText;
     Node SelectedSection;
     Node ConfigSection;
     Node DurationValue;
