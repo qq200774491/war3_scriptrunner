@@ -77,7 +77,7 @@ Application::~Application() {
 }
 
 void Application::open_window() {
-    BKWindow *Created = BK_window_new(Context.get(), "ScriptRoom", Launch.Width, Launch.Height);
+    BKWindow *Created = BK_window_new(Context.get(), "云脚本Test启动器", Launch.Width, Launch.Height);
     require(Created != nullptr, "无法创建窗口");
     Window = std::make_unique<WindowHandle>(Created);
     const auto Handle = static_cast<HWND>(BK_window_handle(Created));
