@@ -27,6 +27,8 @@ public:
     void on_click(Node Source, std::function<void()> Body);
     void on_change(Node Source, std::function<void()> Body);
 
+    void invoke(const std::function<void()> &Body);
+
     /// 只填 data 与 emit 的 BKHost，交给 BK_context_set_host（窗口宿主会补全其余服务）。
     BKHost host();
 

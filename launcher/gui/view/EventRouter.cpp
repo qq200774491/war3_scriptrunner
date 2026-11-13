@@ -30,8 +30,12 @@ void EventRouter::dispatch(BKNode *Source, int Kind, double A, double B) {
     if (Found == Handlers.end()) {
         return;
     }
+    invoke([&Body = Found->second, A, B] { Body(A, B); });
+}
+
+void EventRouter::invoke(const std::function<void()> &Body) {
     try {
-        Found->second(A, B);
+        Body();
         if (AfterEvent) {
             AfterEvent();
         }
