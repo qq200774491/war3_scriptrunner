@@ -29,11 +29,13 @@ end
 ---@return SyncFragment|nil fragment
 ---@return string|nil reason
 local function parse_fragment(packet, room, chunk)
-    local packet_room, sequence, index, count, data = packet:match(PACKET_PATTERN)
+    local packet_room, sequence_text, index_text, count_text, data = packet:match(PACKET_PATTERN)
     if packet_room ~= room then
         return nil
     end
-    sequence, index, count = tonumber(sequence), tonumber(index), tonumber(count)
+    local sequence = tonumber(sequence_text)
+    local index = tonumber(index_text)
+    local count = tonumber(count_text)
     if #data % 2 ~= 0 or #data > chunk * 2 then
         return nil, 'invalid sync fragment'
     end
