@@ -48,9 +48,12 @@ struct HostInbox {
         std::string Failure;
     };
 
+    explicit HostInbox(std::shared_ptr<RunStats> Recorder) : Stats(std::move(Recorder)) {}
+
+    const std::shared_ptr<RunStats> Stats;
     std::mutex Mutex;
     std::condition_variable Wake;
-    std::deque<Request> Commands;
+    std::deque<Request> Commands; ///< 长度即宿主积压，每次进出都记进 Stats
     std::deque<Frame> Frames;
     bool Stop = false;       ///< 外部请求停止
     bool Closed = false;     ///< 宿主线程已退出，不再接收命令
@@ -67,6 +70,7 @@ std::uint64_t HostSender::event(std::int32_t Player, std::string Name, std::stri
         std::lock_guard<std::mutex> Lock(Shared->Mutex);
         require(!Shared->Closed, "host closed");
         Shared->Commands.push_back(std::move(Pending));
+        Shared->Stats->record_backlog(Shared->Commands.size());
     }
     Shared->Wake.notify_all();
     try {
@@ -226,8 +230,9 @@ void shutdown(ChildProcess &Child) {
 
 } // namespace
 
-Host::Host(HostConfig Settings, HostEventSink EventSink)
-    : Config(std::move(Settings)), Sink(std::move(EventSink)), Shared(std::make_shared<HostInbox>()) {
+Host::Host(HostConfig Settings, HostEventSink EventSink, std::shared_ptr<RunStats> Stats)
+    : Config(std::move(Settings)), Sink(std::move(EventSink)),
+      Shared(std::make_shared<HostInbox>(stats_or_private(std::move(Stats)))) {
     Worker = std::thread([this] { run(); });
 }
 
@@ -303,6 +308,7 @@ void Host::run() {
                     } else if (State.is_ready() && State.is_idle() && !Box.Commands.empty()) {
                         Command = std::move(Box.Commands.front());
                         Box.Commands.pop_front();
+                        Box.Stats->record_backlog(Box.Commands.size());
                     } else if (Clock::now() >= NextTick) {
                         TickDue = true;
                     }
@@ -342,6 +348,7 @@ void Host::run() {
         Shared->Closed = true;
         Shared->Commands.clear(); // 未发送的请求随 promise 销毁而失败
         Shared->Frames.clear();
+        Shared->Stats->record_backlog(0);
     }
     if (Failure.empty()) {
         return;

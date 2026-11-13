@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Json.h"
+#include "RunStats.h"
 #include "Sync.h"
 
 #include <cstdint>
@@ -59,8 +60,8 @@ private:
 /// 读取、心跳和全局回包在等待 ACK 时仍能推进。
 class Host {
 public:
-    /// 启动线程与子进程；启动失败通过 HostFailed 事件汇报。
-    Host(HostConfig Config, HostEventSink Sink);
+    /// 启动线程与子进程；启动失败通过 HostFailed 事件汇报。Stats 记录等待送进宿主的请求积压，可为空。
+    Host(HostConfig Config, HostEventSink Sink, std::shared_ptr<RunStats> Stats = nullptr);
     ~Host();
     Host(const Host &) = delete;
     Host &operator=(const Host &) = delete;
